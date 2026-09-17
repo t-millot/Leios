@@ -14,8 +14,8 @@ public struct MousePilotConfig: Codable, Equatable, Sendable {
     public init() {}
 
     public static let defaultButtons: [Int: ButtonMapping] = [
-        4: ButtonMapping(click: .symbolicHotkey(.lookUp), drag: .threeFingerSwipe),
-        5: ButtonMapping(click: .smartZoom, drag: .twoFingerSwipe),
+        4: ButtonMapping(click: .navigateBack, drag: .threeFingerSwipe),
+        5: ButtonMapping(click: .navigateForward, drag: .twoFingerSwipe),
     ]
 
     /// Preset for three-button mice (from Mac Mouse Fix `defaultRemaps.threeButtons`).
@@ -23,7 +23,8 @@ public struct MousePilotConfig: Codable, Equatable, Sendable {
         3: ButtonMapping(click: .symbolicHotkey(.lookUp), doubleClick: .symbolicHotkey(.launchpad), hold: .symbolicHotkey(.showDesktop), drag: .threeFingerSwipe),
     ]
 
-    /// Preset for five-button mice (from Mac Mouse Fix `defaultRemaps.fiveButtons`).
+    /// Preset for five-button mice (from Mac Mouse Fix `defaultRemaps.fiveButtons`, but with the
+    /// side buttons on Back/Forward, which is what the thumb buttons of a five-button mouse do elsewhere).
     public static let fiveButtonPreset: [Int: ButtonMapping] = defaultButtons
 
     enum CodingKeys: String, CodingKey { case version, scroll, buttons, general }
