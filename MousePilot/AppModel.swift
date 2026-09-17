@@ -118,6 +118,19 @@ final class AppModel {
         HelperInstaller.openLoginItemsSettings()
     }
 
+    // MARK: Button capture
+
+    /// Asks the helper to swallow the next mouse-button press and report it, so buttons that already
+    /// have an assignment can be added too — their press never reaches the app on its own.
+    func captureButtonFromHelper(timeout: TimeInterval = 60) async -> ButtonCaptureOutcome {
+        guard case .running(let accessibility) = helperState, accessibility else { return .unavailable }
+        return await client.captureNextButton(timeout: timeout)
+    }
+
+    func cancelButtonCapture() {
+        client.cancelButtonCapture()
+    }
+
     func openAccessibilitySettings() {
         client.requestAccessibility()
         NSWorkspace.shared.open(MPConstants.accessibilitySettingsURL)

@@ -47,3 +47,6 @@ If you change the bundle identifier or switch signing identities, reset the stal
 - One dedicated engine thread hosts every event tap, timer and display link, so the engine is single-threaded.
 - Config changes flow app → `config.json` → helper (file watcher + XPC `reloadConfig`).
 - Tap lifetimes are decided by `SwitchMaster`: unused input paths cost nothing.
+- The Buttons tab adds a button by capturing a press: the app arms the helper over XPC while the
+  pointer is in the capture zone, and the helper swallows the next press and reports its number.
+  That is what makes a button whose assignment would otherwise consume the press capturable too.

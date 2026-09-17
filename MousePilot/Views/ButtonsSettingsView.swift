@@ -7,41 +7,50 @@ import MousePilotShared
 struct ButtonsSettingsView: View {
     @Environment(AppModel.self) private var model
 
+    @State private var highlighted: Int?
+    @State private var highlightTask: Task<Void, Never>?
+
     private var mappedButtons: [Int] { model.config.buttons.keys.sorted() }
-    private var unmappedButtons: [Int] { (MPConstants.minButton...MPConstants.maxButton).filter { model.config.buttons[$0] == nil } }
 
     var body: some View {
         VStack(spacing: 8) {
-            Form {
-                if mappedButtons.isEmpty {
-                    Text("No buttons configured.").foregroundStyle(.secondary)
-                }
-                ForEach(mappedButtons, id: \.self) { button in
-                    Section {
-                        actionPicker("Click", button: button, \.click)
-                        actionPicker("Double Click", button: button, \.doubleClick)
-                        actionPicker("Click and Hold", button: button, \.hold)
-                        dragPicker(button: button)
-                    } header: {
-                        HStack {
-                            Text(buttonName(button))
-                            Spacer()
-                            Button(role: .destructive) { model.config.buttons[button] = nil } label: {
-                                Image(systemName: "minus.circle")
-                            }
-                            .buttonStyle(.borderless)
-                        }
+            ScrollViewReader { scroller in
+                Form {
+                    if mappedButtons.isEmpty {
+                        Text("No buttons configured.").foregroundStyle(.secondary)
                     }
+                    ForEach(mappedButtons, id: \.self) { button in
+                        Section {
+                            actionPicker("Click", button: button, \.click)
+                            actionPicker("Double Click", button: button, \.doubleClick)
+                            actionPicker("Click and Hold", button: button, \.hold)
+                            dragPicker(button: button)
+                        } header: {
+                            HStack {
+                                Text(buttonName(button))
+                                    .foregroundStyle(highlighted == button ? Color.accentColor : .primary)
+                                Spacer()
+                                Button(role: .destructive) { model.config.buttons[button] = nil } label: {
+                                    Image(systemName: "minus.circle")
+                                }
+                                .buttonStyle(.borderless)
+                                .help("Remove \(buttonName(button))")
+                            }
+                        }
+                        .id(button)
+                    }
+                }
+                .formStyle(.grouped)
+                .onChange(of: highlighted) { _, new in
+                    guard let new else { return }
+                    withAnimation { scroller.scrollTo(new, anchor: .center) }
                 }
             }
-            .formStyle(.grouped)
+            ButtonCaptureZone(onCapture: capture,
+                              armHelper: { await model.captureButtonFromHelper(timeout: $0) },
+                              disarmHelper: { model.cancelButtonCapture() })
+                .padding(.horizontal)
             HStack {
-                Menu("Add Button") {
-                    ForEach(unmappedButtons, id: \.self) { button in
-                        Button(buttonName(button)) { model.config.buttons[button] = ButtonMapping() }
-                    }
-                }
-                .fixedSize()
                 Menu("Presets") {
                     Button("5-button mouse") { model.config.buttons = MousePilotConfig.fiveButtonPreset }
                     Button("3-button mouse") { model.config.buttons = MousePilotConfig.threeButtonPreset }
@@ -56,14 +65,31 @@ struct ButtonsSettingsView: View {
         }
     }
 
-    private func buttonName(_ button: Int) -> String {
-        switch button {
-        case 3: return "Middle Button (3)"
-        case 4: return "Button 4"
-        case 5: return "Button 5"
-        default: return "Button \(button)"
+    /// Adds the pressed button to the config, or reports why it can't be added.
+    private func capture(_ button: Int) -> ButtonCaptureResult {
+        guard button >= MPConstants.minButton, button <= MPConstants.maxButton else {
+            return button < MPConstants.minButton ? .primaryButton : .outOfRange(button)
+        }
+        guard model.config.buttons[button] == nil else {
+            highlight(button)
+            return .alreadyMapped(button)
+        }
+        model.config.buttons[button] = ButtonMapping()
+        highlight(button)
+        return .added(button)
+    }
+
+    private func highlight(_ button: Int) {
+        highlighted = button
+        highlightTask?.cancel()
+        highlightTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2.5))
+            guard !Task.isCancelled else { return }
+            highlighted = nil
         }
     }
+
+    private func buttonName(_ button: Int) -> String { MouseButtonNaming.name(button) }
 
     private func actionPicker(_ title: String, button: Int, _ keyPath: WritableKeyPath<ButtonMapping, Action?>) -> some View {
         @Bindable var model = model

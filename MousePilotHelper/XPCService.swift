@@ -78,4 +78,30 @@ final class XPCService: NSObject, NSXPCListenerDelegate, MousePilotHelperXPC {
             self.accessibility.requestPermission()
         }
     }
+
+    func captureNextButton(timeout: Double, reply: @escaping (Int) -> Void) {
+        let bounded = min(max(timeout, 1), ButtonCapture.maxTimeout)
+        // The reply block crosses to the engine thread, and calling it twice would tear the
+        // connection down, so it is handed over as a one-shot.
+        let once = OneShotReply(reply)
+        engine.captureNextButton(timeout: bounded) { once.call($0) }
+    }
+
+    func cancelButtonCapture() {
+        engine.cancelButtonCapture()
+    }
+}
+
+/// Calls an XPC reply block at most once, from any thread.
+private final class OneShotReply: @unchecked Sendable {
+    private var reply: ((Int) -> Void)?
+    private let lock = NSLock()
+    init(_ reply: @escaping (Int) -> Void) { self.reply = reply }
+    func call(_ value: Int) {
+        lock.lock()
+        let reply = self.reply
+        self.reply = nil
+        lock.unlock()
+        reply?(value)
+    }
 }

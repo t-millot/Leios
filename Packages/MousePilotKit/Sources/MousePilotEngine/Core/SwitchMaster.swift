@@ -39,8 +39,9 @@ final class SwitchMaster {
         let scrollOn = general.scrollingEnabled && (defaultModifiesScroll || !currentKbMod.isEmpty)
         subsystems.scroll.setReceiving(scrollOn)
 
-        // Buttons
-        let buttonsOn = general.buttonsEnabled && subsystems.remapTable.anyButtonMapped
+        // Buttons. A capture armed by the settings app needs the tap even when nothing is mapped,
+        // and even when the buttons kill switch is off — it only reports presses, it never acts on them.
+        let buttonsOn = subsystems.buttons.isCapturing || (general.buttonsEnabled && subsystems.remapTable.anyButtonMapped)
         subsystems.buttons.setReceiving(buttonsOn)
 
         // Drag

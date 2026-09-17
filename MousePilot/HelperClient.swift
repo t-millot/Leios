@@ -10,6 +10,15 @@ struct HelperXPCStatus: Equatable {
     var engineRunning: Bool
 }
 
+/// Result of asking the helper to swallow and report the next mouse-button press.
+enum ButtonCaptureOutcome: Equatable {
+    case captured(Int)
+    /// Nobody pressed a button in time; arming again is worthwhile.
+    case timedOut
+    /// The helper can't capture (not running, disabled, or no Accessibility permission).
+    case unavailable
+}
+
 @MainActor
 final class HelperClient {
 
@@ -71,6 +80,24 @@ final class HelperClient {
     func requestAccessibility() {
         let proxy = makeConnection().remoteObjectProxyWithErrorHandler { _ in } as? MousePilotHelperXPC
         proxy?.requestAccessibility()
+    }
+
+    /// Arms the helper to swallow the next mouse-button press and report which button it was.
+    /// Suspends until a button is pressed or `timeout` elapses.
+    func captureNextButton(timeout: TimeInterval) async -> ButtonCaptureOutcome {
+        // Outlive the helper's own timeout, so the helper — not the client — decides when to give up.
+        let raw: Int? = await call(timeout: timeout + 5) { proxy, done in
+            proxy.captureNextButton(timeout: timeout) { done($0) }
+        }
+        guard let raw else { return .unavailable }
+        // Anything above the lowest remappable button is a real press; the caller judges the range.
+        if raw >= MPConstants.minButton { return .captured(raw) }
+        return raw == ButtonCapture.timedOut ? .timedOut : .unavailable
+    }
+
+    func cancelButtonCapture() {
+        let proxy = makeConnection().remoteObjectProxyWithErrorHandler { _ in } as? MousePilotHelperXPC
+        proxy?.cancelButtonCapture()
     }
 }
 

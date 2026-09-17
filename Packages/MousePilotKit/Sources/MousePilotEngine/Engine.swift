@@ -99,6 +99,26 @@ public final class Engine {
         }
     }
 
+    // MARK: Button capture (for the settings app)
+
+    /// Swallows the next mouse-button press and reports its number instead of acting on it, so the
+    /// settings app can add a button the user presses — including one whose assignment would
+    /// otherwise consume the press. `completion` runs exactly once, on the engine thread, with the
+    /// button number or `ButtonCapture.timedOut` / `.unavailable`.
+    public func captureNextButton(timeout: TimeInterval, completion: @escaping @Sendable (Int) -> Void) {
+        guard started else { completion(ButtonCapture.unavailable); return }
+        thread.perform { [self] in
+            guard let subsystems else { completion(ButtonCapture.unavailable); return }
+            subsystems.beginButtonCapture(timeout: timeout, completion: completion)
+        }
+    }
+
+    /// Ends an armed capture; its completion runs with `ButtonCapture.timedOut`.
+    public func cancelButtonCapture() {
+        guard started else { return }
+        thread.perform { [self] in subsystems?.cancelButtonCapture() }
+    }
+
     /// Emergency cleanup usable from a signal handler path: restores the pointer even if `stop()` cannot run.
     public func emergencyCleanup() {
         subsystems?.emergencyCleanup()

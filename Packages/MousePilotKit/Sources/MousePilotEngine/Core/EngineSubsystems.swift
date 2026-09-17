@@ -61,12 +61,29 @@ final class EngineSubsystems {
         modifiers.onButtonModifierUsed = { [weak self] m in
             self?.buttonsLogic.handleButtonHasHadEffectAsModifier(button: m.button)
         }
+        buttons.onCaptureStateChanged = { [weak self] in
+            self?.switchMaster.reevaluate()
+        }
         buttonsLogic.useButtonModifiers = remapTable.anyDragMapped
+        switchMaster.reevaluate()
+    }
+
+    /// Arms button capture for the settings app and turns the button tap on for its duration.
+    func beginButtonCapture(timeout: TimeInterval, completion: @escaping (Int) -> Void) {
+        thread.assertOnEngineThread()
+        buttons.beginCapture(timeout: timeout, completion: completion)
+        switchMaster.reevaluate()
+    }
+
+    func cancelButtonCapture() {
+        thread.assertOnEngineThread()
+        buttons.cancelCapture()
         switchMaster.reevaluate()
     }
 
     func stop() {
         thread.assertOnEngineThread()
+        buttons.cancelCapture()
         switchMaster.disableAll()
         buttonsLogic.killClickCycle()
         scroll.invalidate()
