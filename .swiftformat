@@ -1,0 +1,47 @@
+# SwiftFormat configuration for MousePilot.
+#
+# Tuned to the code that is here rather than the other way round: the engine is a port of
+# Mac Mouse Fix and stays diffable against it (see CLAUDE.md), and the app follows the same
+# conventions. Options are preferred over disabling rules; the disabled list is only for rules
+# with no option that would restyle existing code.
+#
+# The ported engine relaxes a few more rules in Packages/MousePilotKit/.swiftformat.
+
+--swiftversion 5
+
+# Ranges read as 0..<count and -3...3, the way the math was written.
+--ranges no-space
+# `case .added(let button)`, not `case let .added(button)`.
+--patternlet inline
+# Types open with a blank line before their first member throughout this codebase.
+--typeblanklines preserve
+# #if DEBUG bodies stay at the indentation of the surrounding code.
+--ifdef no-indent
+
+--exclude build,DerivedData,.build,Packages/MousePilotKit/.build
+
+--disable \
+    wrapIfStatementBodies,wrapLoopBodies,wrapFunctionBodies,wrapPropertyBodies, \
+    sortImports, \
+    consecutiveSpaces, \
+    redundantSelf, \
+    andOperator, \
+    unusedArguments, \
+    blankLinesBetweenScopes, \
+    blankLinesAtStartOfScope, \
+    wrapMultilineStatementBraces, \
+    wrapArguments, \
+    elseOnSameLine, \
+    docComments
+
+# Why each is off:
+#   wrap*Bodies             single-line `guard x else { return }` is used deliberately everywhere
+#   sortImports             imports are grouped by layer (system, then MousePilot modules)
+#   consecutiveSpaces       aligned trailing comments and the ported curve tables
+#   redundantSelf           explicit self marks captures in the engine's callback-heavy code
+#   andOperator             `&&` is kept rather than comma-separated conditions
+#   unusedArguments         ported signatures mirror Mac Mouse Fix, unused parameters included
+#   blankLines*             one-line members are packed on purpose (EventUtility, Vector)
+#   wrapMultilineStatementBraces / wrapArguments / elseOnSameLine
+#                           `) {`, `})` and `...) else {` are this codebase's brace style
+#   docComments             `//` notes above declarations are provenance, not API documentation

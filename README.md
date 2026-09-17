@@ -38,7 +38,8 @@ xcodebuild test -workspace MousePilot.xcworkspace -scheme MousePilot -destinatio
 cd Packages/MousePilotKit && swift test
 ```
 
-Lint with `swiftlint lint --strict` (`brew install swiftlint`). Rules the Mac Mouse Fix port does not
+Lint with `swiftlint lint --strict` and check formatting with `swiftformat --lint`
+(`brew install swiftlint swiftformat`). Rules the Mac Mouse Fix port does not
 fit are relaxed in `Packages/MousePilotKit/.swiftlint.yml` rather than worked around in the source.
 
 Tests live in three targets: `MousePilotTests/` (app-hosted: capture rules and the embedded-helper bundle layout)

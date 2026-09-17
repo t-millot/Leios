@@ -1,0 +1,11 @@
+# Nested SwiftFormat configuration: the ported engine, on top of the root config.
+#
+# These rules stay on for the app, the helper and their tests; here they would rewrite code that
+# is kept as Mac Mouse Fix wrote it (see CLAUDE.md).
+#
+#   indent                  DragCurve aligns its continuation lines with the derivation
+#   yodaConditions          ported comparisons keep the constant where the original put it
+#   redundantParens         parentheses group compound conditions, e.g. (dx != 0 || dy != 0)
+#   noForceUnwrapInTests    engine tests force-unwrap fixtures the setup just created
+
+--disable indent,yodaConditions,redundantParens,noForceUnwrapInTests

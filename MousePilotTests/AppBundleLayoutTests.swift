@@ -50,7 +50,7 @@ final class AppBundleLayoutTests: XCTestCase {
     }
 
     /// The helper walks back up to the main app with this path when it needs to relaunch it.
-    func testHelperCanWalkBackToTheMainApp() throws {
+    func testHelperCanWalkBackToTheMainApp() {
         let helperURL = appBundleURL.appendingPathComponent(MPConstants.helperRelativePath)
         let backUp = helperURL
             .appendingPathComponent(MPConstants.mainAppRelativePathFromHelper)

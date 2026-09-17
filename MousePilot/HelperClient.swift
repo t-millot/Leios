@@ -102,7 +102,7 @@ final class HelperClient {
 }
 
 /// Resumes a continuation at most once, from any thread.
-nonisolated private final class OneShot<T>: @unchecked Sendable {
+private final nonisolated class OneShot<T>: @unchecked Sendable {
     private var continuation: CheckedContinuation<T, Never>?
     private let lock = NSLock()
     init(_ c: CheckedContinuation<T, Never>) { continuation = c }

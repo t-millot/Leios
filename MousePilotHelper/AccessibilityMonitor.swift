@@ -48,6 +48,7 @@ final class AccessibilityMonitor {
 }
 
 import MousePilotShared
+
 enum MPConstantsBridge {
     static var accessibilitySettingsURL: URL { MPConstants.accessibilitySettingsURL }
 }

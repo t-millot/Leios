@@ -99,7 +99,7 @@ struct ButtonsSettingsView: View {
             get: { model.config.buttons[button]?[keyPath: keyPath] },
             set: { model.config.buttons[button, default: ButtonMapping()][keyPath: keyPath] = $0 })
         return Picker(title, selection: binding) {
-            Text("None").tag(Optional<Action>.none)
+            Text("None").tag(Action?.none)
             ForEach(Action.uiChoices, id: \.self) { action in
                 Text(action.displayName).tag(Optional(action))
             }
@@ -112,7 +112,7 @@ struct ButtonsSettingsView: View {
             get: { model.config.buttons[button]?.drag },
             set: { model.config.buttons[button, default: ButtonMapping()].drag = $0 })
         return Picker("Click and Drag", selection: binding) {
-            Text("None").tag(Optional<MouseDragGesture>.none)
+            Text("None").tag(MouseDragGesture?.none)
             ForEach(MouseDragGesture.allCases, id: \.self) { g in
                 Text(g.displayName).tag(Optional(g))
             }

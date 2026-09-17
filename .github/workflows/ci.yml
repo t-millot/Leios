@@ -80,6 +80,29 @@ jobs:
       - name: Lint
         run: swiftlint lint --strict --reporter github-actions-logging
 
+  format:
+    name: SwiftFormat
+    # Preinstalled on the image (0.63.0, the version the config was tuned against). A newer
+    # SwiftFormat may add rules; when the image updates, this job is where that shows up.
+    runs-on: xcode-27
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Show SwiftFormat version
+        run: swiftformat --version
+
+      # --lint reports what formatting would change without writing anything. The tree is clean,
+      # so any report is from the change under test. Rules the port does not fit are relaxed in
+      # .swiftformat and Packages/MousePilotKit/.swiftformat.
+      - name: Check formatting
+        run: |
+          swiftformat \
+            MousePilot MousePilotHelper MousePilotTests \
+            Packages/MousePilotKit/Sources Packages/MousePilotKit/Tests \
+            --lint --reporter github-actions-log
+
   build-release:
     name: Release build
     # Independent of the tests: Release compiles whole-module and drops NS assertions, so it can
