@@ -10,6 +10,20 @@ by Noah Nuebling. The engine (`Packages/MousePilotKit/Sources/MousePilotEngine`)
 and is used under the [MMF License](https://github.com/noah-nuebling/mac-mouse-fix/blob/master/License).
 MousePilot is not sold.
 
+## Installing
+
+Requires macOS 27 or later on Apple silicon.
+
+1. Download `MousePilot-<version>.dmg` from
+   [Releases](https://github.com/t-millot/MousePilot/releases) and drag **MousePilot** to Applications.
+2. Open it and turn on **Enable MousePilot**.
+3. Grant Accessibility to **MousePilotHelper** in System Settings → Privacy & Security → Accessibility.
+   The engine starts as soon as permission is granted.
+
+The app and the helper it embeds are both signed with a Developer ID and notarized, so there is no
+Gatekeeper warning to click through. Neither is sandboxed: the engine owns `CGEventTap`s, which the
+App Sandbox forbids.
+
 ## Layout
 
 - `MousePilot/` — the SwiftUI settings app. Writes `~/Library/Application Support/MousePilot/config.json`,
@@ -53,6 +67,26 @@ The app accepts `--enable-helper` / `--disable-helper` launch arguments for scri
 
 If you change the bundle identifier or switch signing identities, reset the stale permission with
 `tccutil reset Accessibility com.tmillot.MousePilot.Helper`.
+
+### Releasing
+
+`Scripts/release.sh` produces the distributable disk image: it archives Release, exports with the
+Developer ID identity, notarizes and staples *both* the app and the image, then re-checks the result
+with `spctl` the way a recipient's Mac will. Stapling the app as well as the image is deliberate —
+a copy dragged out to `/Applications` carries its own ticket and validates offline. The embedded
+helper is checked separately, because launchd loads it rather than the user opening it, so Gatekeeper
+assesses it on its own.
+
+It needs a *Developer ID Application* certificate in the login keychain (Xcode → Settings → Accounts →
+Manage Certificates) and notarization credentials under a keychain profile:
+
+```bash
+xcrun notarytool store-credentials mousepilot-notary --apple-id <apple-id> --team-id WE9Q98XU4V
+./Scripts/release.sh
+```
+
+The version in the file name comes from `MARKETING_VERSION` in the Xcode project — bump it there,
+on every configuration, before cutting a release.
 
 ## Architecture notes
 
