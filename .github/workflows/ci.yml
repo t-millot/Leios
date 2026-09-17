@@ -58,3 +58,42 @@ jobs:
           name: TestResults
           path: TestResults.xcresult
           retention-days: 7
+
+  build-release:
+    name: Release build
+    # Independent of the tests: Release compiles whole-module and drops NS assertions, so it can
+    # fail where the Debug test build passes. Nothing here is distributable — the product is
+    # ad-hoc signed, and in Release the helper rejects XPC connections without a team identifier.
+    runs-on: xcode-27
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build app and helper
+        run: |
+          set -o pipefail
+          if command -v xcbeautify >/dev/null 2>&1; then
+            formatter=(xcbeautify --renderer github-actions)
+          else
+            formatter=(cat)
+          fi
+          xcodebuild build \
+            -project MousePilot.xcodeproj \
+            -scheme MousePilot \
+            -configuration Release \
+            -destination 'platform=macOS' \
+            -derivedDataPath DerivedData \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY=- \
+            DEVELOPMENT_TEAM= \
+            | "${formatter[@]}"
+
+      # The Embed Helper and Copy LaunchAgent phases are only exercised by a full app build, and
+      # AppBundleLayoutTests checks them for Debug only.
+      - name: Check the Release bundle is laid out correctly
+        run: |
+          app=DerivedData/Build/Products/Release/MousePilot.app
+          test -d "$app/Contents/Library/LoginItems/MousePilotHelper.app"
+          test -f "$app/Contents/Library/LaunchAgents/com.tmillot.MousePilot.Helper.plist"
+          codesign --verify --deep --strict "$app"
