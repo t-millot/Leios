@@ -25,6 +25,8 @@ There are three test targets: `MousePilotTests` (in the Xcode project, app-hoste
 
 Tests are XCTest, and the engine ones are not pure unit tests: they start a real `EngineThread`, real run-loop timers and (in `FrameClockTests`) a real `CADisplayLink`, so they need a windowserver session and take wall-clock time. `MousePilotTests` is hosted by the app, so running it launches `MousePilot.app` — harmless, since `AppModel` only reads config and polls unless it gets `--enable-helper`. Nothing in any suite creates an event tap, so no Accessibility permission is needed.
 
+CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs that same workspace command on GitHub's `xcode-27` image — the only hosted image whose OS is new enough for a macOS 27 deployment target — with ad-hoc signing (`CODE_SIGN_IDENTITY=-`, no team) since the runner has no Developer ID.
+
 `MousePilotTests` is for what the package tests structurally cannot reach: app-target code, and the bundle layout (`AppBundleLayoutTests` asserts the helper really is embedded where `MPConstants` says and that the LaunchAgent plist agrees with it — that catches a broken Embed Helper phase, which no SPM test can see).
 
 Reset a stale Accessibility grant after a bundle-ID or signing change:

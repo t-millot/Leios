@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests
+    # MousePilot deploys to macOS 27, so the tests need a macOS 27 host to launch on.
+    # `xcode-27` is GitHub's macOS 27 preview image; it can queue longer than the GA images.
+    runs-on: xcode-27
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Show toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+
+      # The workspace, not the project: Xcode leaves a local package's test targets out of a plain
+      # project scheme, so `-project` would silently run only MousePilotTests.
+      # Signing is ad-hoc — CI has no Developer ID, and nothing under test needs a real identity
+      # (the helper's XPC team check only bites in Release builds, which this isn't).
+      - name: Run tests
+        run: |
+          set -o pipefail
+          if command -v xcbeautify >/dev/null 2>&1; then
+            formatter=(xcbeautify --renderer github-actions)
+          else
+            formatter=(cat)
+          fi
+          xcodebuild test \
+            -workspace MousePilot.xcworkspace \
+            -scheme MousePilot \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            -derivedDataPath DerivedData \
+            -resultBundlePath TestResults.xcresult \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY=- \
+            DEVELOPMENT_TEAM= \
+            ENABLE_HARDENED_RUNTIME=NO \
+            | "${formatter[@]}"
+
+      - name: Upload test results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: TestResults
+          path: TestResults.xcresult
+          retention-days: 7
