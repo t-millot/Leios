@@ -1,0 +1,75 @@
+# SwiftLint configuration for MousePilot.
+#
+# The engine is a port of Mac Mouse Fix and keeps that code's shape on purpose: verbatim math,
+# MMF's own identifiers, and long state machines (see CLAUDE.md). Rules that fight the port are
+# relaxed or switched off here rather than worked around in the source; everything else stays on,
+# so CI can run --strict and any new violation is a real one.
+
+included:
+  - MousePilot
+  - MousePilotHelper
+  - MousePilotTests
+  - Packages/MousePilotKit/Sources
+  - Packages/MousePilotKit/Tests
+
+disabled_rules:
+  # `x = x - a` mirrors the formula it was ported from; shorthand would obscure the source.
+  - shorthand_operator
+  # SwitchMaster is MMF's class name, kept so the port stays traceable to the original.
+  - inclusive_language
+  # Xcode's own indentation puts `case` inside the braces, and the port follows the IDE.
+  - switch_case_alignment
+  # Trailing commas keep single-line diffs when tables grow.
+  - trailing_comma
+
+# App and helper code wraps at a normal width; the one long line is a user-facing string, which
+# reads worse broken up. The ported engine relaxes this further in Packages/MousePilotKit.
+line_length:
+  warning: 200
+  error: 300
+  ignores_urls: true
+  ignores_comments: true
+
+identifier_name:
+  # Curve and vector math reads better as t, dx, p0 than as spelled-out words.
+  min_length:
+    warning: 1
+    error: 1
+  max_length:
+    warning: 60
+    error: 80
+  # MMF marks derived quantities like speed_n and private helpers like _baseCurve.
+  allowed_symbols: ["_"]
+
+type_name:
+  max_length:
+    warning: 50
+    error: 60
+
+# The ported state machines (ScrollController, Buttons, ModifiedDrag) are large by design.
+file_length:
+  warning: 600
+  error: 1000
+
+type_body_length:
+  warning: 400
+  error: 600
+
+function_body_length:
+  warning: 120
+  error: 250
+
+cyclomatic_complexity:
+  warning: 25
+  error: 40
+
+# Curve factories take every parameter of the curve they build.
+function_parameter_count:
+  warning: 12
+  error: 16
+
+large_tuple:
+  warning: 4
+  error: 6
+
+reporter: "xcode"

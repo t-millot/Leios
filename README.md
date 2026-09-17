@@ -38,6 +38,9 @@ xcodebuild test -workspace MousePilot.xcworkspace -scheme MousePilot -destinatio
 cd Packages/MousePilotKit && swift test
 ```
 
+Lint with `swiftlint lint --strict` (`brew install swiftlint`). Rules the Mac Mouse Fix port does not
+fit are relaxed in `Packages/MousePilotKit/.swiftlint.yml` rather than worked around in the source.
+
 Tests live in three targets: `MousePilotTests/` (app-hosted: capture rules and the embedded-helper bundle layout)
 and the package's `MousePilotEngineTests` / `MousePilotSharedTests`. Run them through `MousePilot.xcworkspace` —
 Xcode leaves a local package's test targets out of a plain project scheme, so `xcodebuild test -project …`

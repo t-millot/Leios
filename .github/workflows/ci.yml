@@ -59,6 +59,27 @@ jobs:
           path: TestResults.xcresult
           retention-days: 7
 
+  lint:
+    name: SwiftLint
+    # Not on the runner image, unlike SwiftFormat and xcbeautify.
+    # The baseline was tuned on 0.65.1; a SwiftLint that adds default rules will show up here as a
+    # lint failure rather than a build failure, so adjust .swiftlint.yml when it does.
+    runs-on: xcode-27
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install SwiftLint
+        run: |
+          brew install swiftlint
+          swiftlint version
+
+      # --strict: the tree is clean, so every warning is something this change introduced.
+      # Rules the Mac Mouse Fix port does not fit are relaxed in Packages/MousePilotKit/.swiftlint.yml.
+      - name: Lint
+        run: swiftlint lint --strict --reporter github-actions-logging
+
   build-release:
     name: Release build
     # Independent of the tests: Release compiles whole-module and drops NS assertions, so it can

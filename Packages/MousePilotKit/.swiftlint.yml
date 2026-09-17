@@ -1,0 +1,33 @@
+# Nested SwiftLint configuration: applies to the ported engine only, on top of the root config.
+#
+# This code is a port of Mac Mouse Fix and is deliberately kept close to its source (see CLAUDE.md),
+# so rules that would have us reshape ported code are switched off here. They stay on for the app,
+# the helper and the tests, where following them costs nothing.
+
+disabled_rules:
+  # The scroll acceleration and animation-curve tables are copied verbatim from MMF; re-wrapping
+  # them to fit a column limit would make them harder to diff against the original.
+  - line_length
+  # Formatting of ported control flow: `else` placement, parentheses that keep a compound
+  # condition readable, and `for`/`if` nesting that mirrors the original.
+  - statement_position
+  - control_statement
+  - for_where
+  # Misfires on `override class var requiresConstraintBasedLayout` in ScreenDrawer's final NSView.
+  - static_over_final_class
+
+identifier_name:
+  min_length:
+    warning: 1
+    error: 1
+  max_length:
+    warning: 60
+    error: 80
+  allowed_symbols: ["_"]
+  # DragCurve works in the symbols of the derivation it implements: T for time, D for distance.
+  validates_start_with_lowercase: off
+
+# ScrollController.handleEvent is one ported decision tree; splitting it would obscure the original.
+function_body_length:
+  warning: 200
+  error: 300
