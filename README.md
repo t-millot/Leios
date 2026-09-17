@@ -34,8 +34,14 @@ Command line:
 
 ```bash
 xcodebuild -project MousePilot.xcodeproj -scheme MousePilot -configuration Debug build
+xcodebuild test -workspace MousePilot.xcworkspace -scheme MousePilot -destination 'platform=macOS'
 cd Packages/MousePilotKit && swift test
 ```
+
+Tests live in three targets: `MousePilotTests/` (app-hosted: capture rules and the embedded-helper bundle layout)
+and the package's `MousePilotEngineTests` / `MousePilotSharedTests`. Run them through `MousePilot.xcworkspace` —
+Xcode leaves a local package's test targets out of a plain project scheme, so `xcodebuild test -project …`
+runs only `MousePilotTests`. Everything else, including day-to-day development, works from `MousePilot.xcodeproj`.
 
 The app accepts `--enable-helper` / `--disable-helper` launch arguments for scripted testing.
 

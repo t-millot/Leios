@@ -67,16 +67,18 @@ struct ButtonsSettingsView: View {
 
     /// Adds the pressed button to the config, or reports why it can't be added.
     private func capture(_ button: Int) -> ButtonCaptureResult {
-        guard button >= MPConstants.minButton, button <= MPConstants.maxButton else {
-            return button < MPConstants.minButton ? .primaryButton : .outOfRange(button)
-        }
-        guard model.config.buttons[button] == nil else {
+        let result = ButtonCaptureResult.classify(button: button,
+                                                  isAlreadyMapped: model.config.buttons[button] != nil)
+        switch result {
+        case .added:
+            model.config.buttons[button] = ButtonMapping()
             highlight(button)
-            return .alreadyMapped(button)
+        case .alreadyMapped:
+            highlight(button)
+        case .primaryButton, .outOfRange:
+            break
         }
-        model.config.buttons[button] = ButtonMapping()
-        highlight(button)
-        return .added(button)
+        return result
     }
 
     private func highlight(_ button: Int) {

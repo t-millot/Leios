@@ -15,6 +15,15 @@ enum ButtonCaptureResult: Equatable {
     case primaryButton
     /// The button number is outside the range MousePilot can remap.
     case outOfRange(Int)
+
+    /// Classifies a captured press. Pure counterpart of `ButtonsSettingsView.capture(_:)`, which
+    /// applies the config change this describes.
+    static func classify(button: Int, isAlreadyMapped: Bool) -> ButtonCaptureResult {
+        guard button >= MPConstants.minButton, button <= MPConstants.maxButton else {
+            return button < MPConstants.minButton ? .primaryButton : .outOfRange(button)
+        }
+        return isAlreadyMapped ? .alreadyMapped(button) : .added(button)
+    }
 }
 
 struct ButtonCaptureZone: View {
