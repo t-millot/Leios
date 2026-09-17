@@ -1,5 +1,7 @@
 # MousePilot
 
+[![CI](https://github.com/t-millot/MousePilot/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/t-millot/MousePilot/actions/workflows/ci.yml)
+
 Better control for external mice on macOS: smooth scrolling, click-and-drag trackpad gestures
 (scroll / navigate, Spaces / Mission Control), and click actions for extra mouse buttons.
 
