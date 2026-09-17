@@ -39,8 +39,15 @@ enum {
     kIOHIDEventTypeDockSwipe         = 23,
 };
 
+// Positional values from Apple's IOHIDEventTypes.h, where this is an implicit enum starting at
+// kIOHIDGestureFlavorNone = 0. Dock swipes carry DockPrimary; a real trackpad gesture sends 3, and
+// the Dock silently ignores a DockSwipe event that carries any other flavor.
 enum {
-    kIOHIDGestureFlavorDockPrimary   = 31,
+    kIOHIDGestureFlavorNone                        = 0,
+    kIOHIDGestureFlavorNotificationCenterPrimary   = 1,
+    kIOHIDGestureFlavorNotificationCenterSecondary = 2,
+    kIOHIDGestureFlavorDockPrimary                 = 3,
+    kIOHIDGestureFlavorDockSecondary               = 4,
 };
 
 enum {
