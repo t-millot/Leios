@@ -17,6 +17,7 @@ final class EngineSubsystems {
     private(set) var scrollGating: ScrollGating
 
     let modifiers: Modifiers
+    let appUnderPointer: AppUnderPointerCache
     let touchSim: TouchSimulator
     let gestureSim: GestureScrollSimulator
     let scroll: ScrollController
@@ -37,11 +38,12 @@ final class EngineSubsystems {
         scrollGating = config.scrollGating
 
         modifiers = Modifiers(runLoop: thread.runLoop)
+        appUnderPointer = AppUnderPointerCache(thread: thread)
         touchSim = TouchSimulator(thread: thread)
         gestureSim = GestureScrollSimulator(clockPool: clockPool)
-        scroll = ScrollController(thread: thread, modifiers: modifiers, settings: config.scroll, apps: appScroll, clockPool: clockPool, gestureSim: gestureSim, touchSim: touchSim)
+        scroll = ScrollController(thread: thread, modifiers: modifiers, appUnderPointer: appUnderPointer, settings: config.scroll, apps: appScroll, clockPool: clockPool, gestureSim: gestureSim, touchSim: touchSim)
         remapTable = RemapTable(buttons: config.buttons)
-        executor = ActionExecutor(touchSim: touchSim)
+        executor = ActionExecutor(touchSim: touchSim, appUnderPointer: appUnderPointer)
         buttonsLogic = Buttons(thread: thread, modifiers: modifiers, remapTable: remapTable, executor: executor)
         buttons = ButtonInputReceiver(thread: thread)
         buttons.buttons = buttonsLogic
@@ -57,6 +59,7 @@ final class EngineSubsystems {
 
     func start() {
         thread.assertOnEngineThread()
+        appUnderPointer.startObserving()
         scroll.createTap()
         buttons.createTap()
         modifiedDrag.createTap()
@@ -97,6 +100,7 @@ final class EngineSubsystems {
         modifiedDrag.invalidate()
         pointerFreeze.invalidate()
         modifiers.invalidate()
+        appUnderPointer.stopObserving()
         touchSim.invalidate()
     }
 

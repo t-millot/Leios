@@ -9,9 +9,11 @@ import MousePilotShared
 final class ActionExecutor {
 
     private let touchSim: TouchSimulator
+    private let appUnderPointer: AppUnderPointerCache
 
-    init(touchSim: TouchSimulator) {
+    init(touchSim: TouchSimulator, appUnderPointer: AppUnderPointerCache) {
         self.touchSim = touchSim
+        self.appUnderPointer = appUnderPointer
     }
 
     func execute(_ action: Action, phase: ActionPhase) {
@@ -59,7 +61,7 @@ final class ActionExecutor {
     }
 
     private func navigate(back isLeft: Bool) {
-        let bundleID = EventUtility.bundleIDOfAppUnderPointer()
+        let bundleID = appUnderPointer.bundleID()
         let method = method(forBundleID: bundleID)
         Log.actions.debug("Universal back/forward: \(bundleID ?? "nil") → \(String(describing: method))")
         switch method {

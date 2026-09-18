@@ -88,10 +88,12 @@ enum EventUtility {
 
     // MARK: App under pointer
 
-    /// Bundle identifier of the app owning the frontmost normal-level window under the pointer.
-    /// Uses the window list (no AppKit main-thread requirement). Slow-ish; call sparingly.
-    static func bundleIDOfAppUnderPointer(event: CGEvent? = nil) -> String? {
-        let point = pointerLocation(event: event)
+    /// Bundle identifier of the app owning the frontmost normal-level window at `point`.
+    /// Uses the window list (no AppKit main-thread requirement).
+    ///
+    /// Copying the window list costs ~0.3–0.5 ms of synchronous IPC, which is far too long to spend
+    /// in an event tap callback. Engine code goes through `AppUnderPointerCache`, never here.
+    static func bundleIDOfApp(at point: CGPoint) -> String? {
         guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return nil }
         let ownPid = ProcessInfo.processInfo.processIdentifier
         for info in list {
@@ -105,4 +107,5 @@ enum EventUtility {
         }
         return nil
     }
+
 }

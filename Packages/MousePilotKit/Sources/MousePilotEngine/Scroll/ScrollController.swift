@@ -15,6 +15,7 @@ final class ScrollController {
 
     private unowned let thread: EngineThread
     private let modifiers: Modifiers
+    private let appUnderPointer: AppUnderPointerCache
     let baseResolver: ScrollConfigResolver
     /// One resolver per profiled app, so each keeps its own warm `resolve` cache.
     private var appResolvers: [String: ScrollConfigResolver] = [:]
@@ -40,9 +41,10 @@ final class ScrollController {
     private var lastMomentumHint: MomentumHint = .none
     private let linePixelator = VectorSubPixelator.biased()
 
-    init(thread: EngineThread, modifiers: Modifiers, settings: ScrollSettings, apps: [String: ScrollSettings], clockPool: FrameClockPool, gestureSim: GestureScrollSimulator, touchSim: TouchSimulator) {
+    init(thread: EngineThread, modifiers: Modifiers, appUnderPointer: AppUnderPointerCache, settings: ScrollSettings, apps: [String: ScrollSettings], clockPool: FrameClockPool, gestureSim: GestureScrollSimulator, touchSim: TouchSimulator) {
         self.thread = thread
         self.modifiers = modifiers
+        self.appUnderPointer = appUnderPointer
         self.baseResolver = ScrollConfigResolver(settings: settings)
         self.scrollConfig = baseResolver.base
         self.appSettings = apps
@@ -297,8 +299,9 @@ final class ScrollController {
         if appResolvers.isEmpty {
             activeProfile = nil
         } else if tickTime - lastTickTime > ScrollController.sequenceGap {
-            let bundleID = EventUtility.bundleIDOfAppUnderPointer(event: event)
+            let bundleID = appUnderPointer.bundleID(event: event)
             activeProfile = bundleID.flatMap { appResolvers[$0] != nil ? $0 : nil }
+            Log.scroll.debug("Scroll sequence: app \(bundleID ?? "nil", privacy: .public), profile \(self.activeProfile ?? "global", privacy: .public)")
         }
         // Switching apps cancels momentum started under the other app's curve. This has to happen
         // before `currentModifications` is updated: `reset()` calls the animation callback
@@ -445,7 +448,7 @@ final class ScrollController {
             var eventDelta = Double(dx + dy) / 800.0
             if eventPhase == .began {
                 // Chromium browsers need a lot of zoom delta before they react: pad the first event.
-                if let bundleID = EventUtility.bundleIDOfAppUnderPointer(), ScrollController.chromiumBundleIDs.contains(where: { bundleID.contains($0) }) {
+                if let bundleID = appUnderPointer.bundleID(), ScrollController.chromiumBundleIDs.contains(where: { bundleID.contains($0) }) {
                     touchSim.postMagnification(eventDelta, phase: .began)
                     eventPhase = .changed
                     if mfsign(eventDelta) > 0 {
