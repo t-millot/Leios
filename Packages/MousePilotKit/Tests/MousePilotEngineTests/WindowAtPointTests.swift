@@ -20,13 +20,17 @@ final class WindowAtPointTests: XCTestCase {
         return points
     }
 
-    func testSkyLightSymbolsResolve() {
+    /// A machine with no GUI session has no window server to ask, so the symbols resolving is not
+    /// meaningful there — skip rather than fail, but still fail on a real desktop, because that is a
+    /// genuine regression (the app keeps working on the fallback, 8x slower, and nothing else says so).
+    func testSkyLightSymbolsResolve() throws {
+        try XCTSkipIf(NSScreen.screens.isEmpty, "no GUI session, so SkyLight has nothing to resolve against")
         XCTAssertTrue(MPWindowAtPointIsAvailable(), "SkyLight window hit test unavailable — the fallback still works, but the fast path is gone")
     }
 
     /// The point that matters: SkyLight and the window list use the same coordinate space, so no
     /// flip is needed. A flipped y would show up here as mass disagreement.
-    func testAgreesWithWindowListEverywhere() {
+    func testAgreesWithWindowListEverywhere() throws {
         var disagreements: [String] = []
         var answered = 0
         for point in sweep {
@@ -40,8 +44,9 @@ final class WindowAtPointTests: XCTestCase {
             }
         }
         XCTAssertTrue(disagreements.isEmpty, "\(disagreements.count) disagreements, first few: \(disagreements.prefix(5))")
-        // A run with no windows on screen would pass vacuously; say so rather than claim coverage.
-        XCTAssertGreaterThan(answered, 0, "no window anywhere on screen — this test proved nothing")
+        // With no windows on screen there is nothing to compare and the test would pass vacuously.
+        // Report that as skipped rather than as green, so a CI run cannot look like coverage it isn't.
+        try XCTSkipIf(answered == 0, "no window anywhere on screen — nothing to compare")
     }
 
     /// When SkyLight declines, `pidOfApp` must fall back rather than report "no app".
