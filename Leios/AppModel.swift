@@ -5,6 +5,7 @@ import Foundation
 import AppKit
 import CloudKit
 import Observation
+import os
 import LeiosShared
 
 enum HelperState: Equatable {
@@ -59,10 +60,16 @@ final class AppModel {
         set { newValue ? enableHelper() : disableHelper() }
     }
 
+    /// Sparkle, and the two update settings the General tab binds to.
+    let updates: UpdateController
+
+    private let log = Logger(subsystem: "com.tmillot.Leios", category: "app")
     private let installer = HelperInstaller()
     private let client = HelperClient()
     private var saveTask: Task<Void, Never>?
     private var pollTask: Task<Void, Never>?
+    /// Guards the stale-helper restart in `refresh()`, which polls every 2 s.
+    private var didRestartStaleHelper = false
 
     private var sync: CloudSync?
     /// The payload this Mac last agreed with the server. Also the upload suppressor: after a
@@ -85,6 +92,7 @@ final class AppModel {
         // loop, and `LeiosTests` runs against the real Application Support directory.
         let underTest = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
         syncEnabled = !underTest && UserDefaults.standard.bool(forKey: DefaultsKey.syncEnabled)
+        updates = UpdateController(startingUpdater: !underTest)
         localDirtySince = UserDefaults.standard.object(forKey: DefaultsKey.localDirtySince) as? Date
         do {
             config = try ConfigFile.load()
@@ -96,6 +104,8 @@ final class AppModel {
         let args = CommandLine.arguments
         if args.contains("--enable-helper") { enableHelper() }
         if args.contains("--disable-helper") { disableHelper() }
+        updates.onWillRelaunch = { [weak self] in self?.stopHelperForUpdate() }
+        restoreHelperAfterUpdate()
         startPolling()
         NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in
@@ -304,6 +314,39 @@ final class AppModel {
         HelperInstaller.openLoginItemsSettings()
     }
 
+    // MARK: Helper lifecycle across an update
+
+    /// Stops the helper just before Sparkle replaces the app bundle it lives in.
+    ///
+    /// Unregistering rather than killing: the launch agent is `KeepAlive`, so launchd would
+    /// restart the old executable straight away. The flag is what lets the next launch tell an
+    /// update apart from the user switching Leios off — `isEnabled` is derived from `helperState`
+    /// and nothing else persists the intent, so without it the new version comes back looking
+    /// disabled.
+    private func stopHelperForUpdate() {
+        UpdateController.helperWasEnabled = (helperState != .disabled && helperState != .notFound)
+        try? installer.unregister()
+        client.invalidate()
+    }
+
+    /// Brings the helper back after an update installed, undoing `stopHelperForUpdate()`.
+    private func restoreHelperAfterUpdate() {
+        guard UpdateController.helperWasEnabled else { return }
+        UpdateController.helperWasEnabled = false
+        do {
+            try installer.register()
+        } catch {
+            lastError = "Could not restart the helper after updating: \(error.localizedDescription)"
+        }
+    }
+
+    /// The app's own build number, which the helper's should match — both targets carry the same
+    /// `CURRENT_PROJECT_VERSION`, so they only differ when one of them is left over from an
+    /// older bundle.
+    private var bundleVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
+    }
+
     // MARK: Button capture
 
     /// Asks the helper to swallow the next mouse-button press and report it, so buttons that already
@@ -344,9 +387,23 @@ final class AppModel {
         case .enabled:
             if let status = await client.getStatus() {
                 helperState = .running(accessibility: status.accessibilityTrusted)
+                restartHelperIfStale(reportedVersion: status.bundleVersion)
             } else {
                 helperState = .enabledNotRunning
             }
         }
+    }
+
+    /// Catches a helper left over from a bundle that has since been replaced — by an update whose
+    /// hand-off did not run, or by a user dragging a new copy over the old one. Registering again
+    /// makes launchd load the new executable.
+    private func restartHelperIfStale(reportedVersion: String) {
+        guard HelperRestartDecision.needsRestart(appVersion: bundleVersion,
+                                                 helperVersion: reportedVersion,
+                                                 alreadyRestarted: didRestartStaleHelper) else { return }
+        didRestartStaleHelper = true
+        log.notice("Helper reports build \(reportedVersion, privacy: .public), app is \(self.bundleVersion, privacy: .public) — restarting it")
+        try? installer.register()
+        client.invalidate()
     }
 }

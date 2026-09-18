@@ -9,10 +9,26 @@ struct GeneralSettingsView: View {
 
     var body: some View {
         @Bindable var model = model
+        @Bindable var updates = model.updates
         Form {
             Section {
                 Toggle("Show menu bar item", isOn: $model.config.general.showMenuBarItem)
                 Toggle("Lock pointer during drag gestures", isOn: $model.config.general.lockPointerDuringDrag)
+            }
+            Section("Updates") {
+                Toggle("Check for updates automatically", isOn: $updates.automaticallyChecks)
+                Toggle("Include pre-release versions", isOn: $updates.includePrereleases)
+                LabeledContent("Last checked") {
+                    HStack {
+                        Text(lastCheckedDescription)
+                            .foregroundStyle(.secondary)
+                        Button("Check Now") { model.updates.checkForUpdates() }
+                            .disabled(!model.updates.canCheckForUpdates)
+                    }
+                }
+                Text("Pre-releases are beta builds, published before a version is finished. Like the kill switches, both of these stay on this Mac.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             Section("iCloud") {
                 Toggle("Sync settings with iCloud", isOn: $model.syncEnabled)
@@ -37,5 +53,10 @@ struct GeneralSettingsView: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private var lastCheckedDescription: String {
+        guard let date = model.updates.lastCheckDate else { return "Never" }
+        return date.formatted(date: .abbreviated, time: .shortened)
     }
 }

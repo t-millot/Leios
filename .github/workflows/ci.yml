@@ -139,10 +139,14 @@ jobs:
             | "${formatter[@]}"
 
       # The Embed Helper and Copy LaunchAgent phases are only exercised by a full app build, and
-      # AppBundleLayoutTests checks them for Debug only.
+      # AppBundleLayoutTests checks them for Debug only. Sparkle has no phase of its own — Xcode
+      # embeds it because it is a binary SPM target — so nothing else would notice it going
+      # missing until an update failed to install. --deep also walks the framework's own nested
+      # Autoupdate.app and XPC services, which is the signing that matters here.
       - name: Check the Release bundle is laid out correctly
         run: |
           app=DerivedData/Build/Products/Release/Leios.app
           test -d "$app/Contents/Library/LoginItems/LeiosHelper.app"
           test -f "$app/Contents/Library/LaunchAgents/com.tmillot.Leios.Helper.plist"
+          test -d "$app/Contents/Frameworks/Sparkle.framework"
           codesign --verify --deep --strict "$app"

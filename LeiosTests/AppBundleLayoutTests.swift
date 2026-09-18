@@ -58,6 +58,26 @@ final class AppBundleLayoutTests: XCTestCase {
         XCTAssertEqual(backUp.standardizedFileURL.path, appBundleURL.standardizedFileURL.path)
     }
 
+    /// Sparkle is a binary SPM target, so Xcode embeds it without an explicit build phase — which
+    /// also means nothing in the project fails visibly if that stops happening. The updater would
+    /// simply not launch.
+    func testSparkleIsEmbedded() {
+        let framework = appBundleURL.appendingPathComponent("Contents/Frameworks/Sparkle.framework")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: framework.path),
+                      "Sparkle.framework missing from Contents/Frameworks — the updater cannot start")
+    }
+
+    /// Sparkle reads both of these from the bundle. They come from SupportFiles/Leios-Info.plist,
+    /// merged into the generated plist; `INFOPLIST_KEY_` is silently ignored for non-Apple keys,
+    /// so this is the assertion that catches a regression back to that.
+    func testSparkleKeysReachTheBundle() throws {
+        let feed = try XCTUnwrap(Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String)
+        XCTAssertTrue(feed.hasPrefix("https://"), "the appcast must be fetched over HTTPS")
+
+        let key = try XCTUnwrap(Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String)
+        XCTAssertFalse(key.isEmpty, "Sparkle refuses to start without a public key")
+    }
+
     func testAppAndHelperShareABundleIDPrefix() {
         XCTAssertEqual(Bundle.main.bundleIdentifier, LeiosConstants.appBundleID)
         XCTAssertTrue(LeiosConstants.helperBundleID.hasPrefix(LeiosConstants.appBundleID + "."),

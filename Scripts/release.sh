@@ -9,7 +9,22 @@
 #      xcrun notarytool store-credentials leios-notary \
 #          --apple-id <apple-id> --team-id WE9Q98XU4V
 #      (asks for an app-specific password from appleid.apple.com)
-#   3. The CloudKit schema promoted to Production, once per schema change:
+#   3. Sparkle's EdDSA signing key, once ever. Sparkle's tools need no install — they ship inside
+#      the package the project already depends on, so they always match the framework version the
+#      app is built against (the Homebrew cask was withdrawn in September 2026 for failing
+#      Gatekeeper, and is not the way in any more):
+#      xcodebuild -resolvePackageDependencies -project Leios.xcodeproj -scheme Leios
+#      "$(Scripts/release.sh --sparkle-bin)/generate_keys"
+#      The private half stays in the login keychain; paste the public half it prints into
+#      SupportFiles/Leios-Info.plist as SUPublicEDKey. Back it up (`generate_keys -x`) — losing
+#      it means no copy of Leios already installed anywhere can ever be updated again.
+#   4. A gh-pages branch serving the appcast, once:
+#      git switch --orphan gh-pages && git rm -rf .
+#      cp SupportFiles/appcast-template.xml appcast.xml
+#      git add appcast.xml && git commit -m "Add the appcast" && git push -u origin gh-pages
+#      then turn Pages on for that branch in the repository settings. The feed URL baked into
+#      the app is SUFeedURL in SupportFiles/Leios-Info.plist; the two have to agree.
+#   5. The CloudKit schema promoted to Production, once per schema change:
 #      CloudKit Console > Leios > Development > Deploy Schema Changes.
 #      A Developer ID build talks to Production (see SupportFiles/Leios-Release.entitlements);
 #      without the promotion every user's first sync fails with an unknown record type. There is
@@ -17,9 +32,10 @@
 #
 # Usage: Scripts/release.sh [--publish] [output-dir]      # output default: build/
 #
-#   --publish   after building, create the GitHub release and upload the disk
-#               image to it. Off by default: building is repeatable, publishing
-#               is not, so it has to be asked for.
+#   --publish   after building, create the GitHub release, upload the disk image
+#               and the update archive to it, and add the release to the appcast.
+#               Off by default: building is repeatable, publishing is not, so it
+#               has to be asked for.
 #
 # The tag is derived from MARKETING_VERSION: "1.0 beta 1" -> v1.0-beta.1,
 # "1.0" -> v1.0. A version with more than one word is treated as a prerelease.
@@ -36,12 +52,44 @@ trap 'rm -rf "$WORK_DIR"' EXIT
 die() { echo "error: $*" >&2; exit 1; }
 step() { echo; echo "==> $*"; }
 
+# Locate one of Sparkle's command-line tools.
+#
+# There is nothing to install: the Homebrew cask was withdrawn on 2026-09-01 for failing the
+# Gatekeeper check. The tools ship inside the SPM artifact this project already resolves, which is
+# better anyway -- they are then guaranteed to match the framework version the app is built
+# against. SPARKLE_BIN overrides the search for anyone keeping a copy elsewhere.
+sparkle_tool() {
+    local name="$1" candidate
+    if [ -n "${SPARKLE_BIN:-}" ] && [ -x "$SPARKLE_BIN/$name" ]; then
+        echo "$SPARKLE_BIN/$name"; return 0
+    fi
+    if command -v "$name" >/dev/null 2>&1; then
+        command -v "$name"; return 0
+    fi
+    # First the derived data this repo's own scripts use, then Xcode's default location. An
+    # unmatched glob stays literal, which the -x test then rejects.
+    for candidate in "$REPO_ROOT"/build/SourcePackages/artifacts/sparkle/Sparkle/bin/"$name" \
+                     "$HOME"/Library/Developer/Xcode/DerivedData/Leios-*/SourcePackages/artifacts/sparkle/Sparkle/bin/"$name"; do
+        [ -x "$candidate" ] && { echo "$candidate"; return 0; }
+    done
+    return 1
+}
+
+MISSING_TOOLS_HELP="Resolve the package first, which is what puts them on disk:
+           xcodebuild -resolvePackageDependencies -project Leios.xcodeproj -scheme Leios
+       or set SPARKLE_BIN to a directory holding them. They are not installable separately --
+       the Homebrew cask was withdrawn in September 2026 for failing Gatekeeper."
+
 PUBLISH=0
 OUT_DIR=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --publish) PUBLISH=1 ;;
-        -h|--help) sed -n '3,20p' "$0" | sed 's/^#\{0,1\} \{0,1\}//'; exit 0 ;;
+        # Where generate_keys lives, for the one-time key setup in the prerequisites above.
+        --sparkle-bin)
+            TOOL="$(sparkle_tool generate_keys)" || die "no Sparkle tools found. $MISSING_TOOLS_HELP"
+            dirname "$TOOL"; exit 0 ;;
+        -h|--help) sed -n '3,41p' "$0" | sed 's/^#\{0,1\} \{0,1\}//'; exit 0 ;;
         -*) die "unknown option: $1" ;;
         *) OUT_DIR="$1" ;;
     esac
@@ -63,12 +111,34 @@ xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1 \
     || die "no notarization credentials under keychain profile '$NOTARY_PROFILE'.
        Create them: xcrun notarytool store-credentials $NOTARY_PROFILE --apple-id <apple-id> --team-id $TEAM_ID"
 
+# Sparkle checks every download against the public key baked into the app, so an appcast entry
+# that is not signed with the matching private key is an update nobody can install.
+SIGN_UPDATE="$(sparkle_tool sign_update)" \
+    || die "could not find Sparkle's sign_update.
+       $MISSING_TOOLS_HELP"
+
+INFO_PLIST="$REPO_ROOT/SupportFiles/Leios-Info.plist"
+PUBLIC_KEY="$(/usr/libexec/PlistBuddy -c 'Print SUPublicEDKey' "$INFO_PLIST" 2>/dev/null || true)"
+case "$PUBLIC_KEY" in
+    ""|REPLACE_WITH_*)
+        die "SUPublicEDKey in SupportFiles/Leios-Info.plist is still a placeholder.
+       Run 'generate_keys' and paste the public key it prints there. A build shipped with the
+       placeholder can never be updated -- Sparkle would reject every signature." ;;
+esac
+FEED_URL="$(/usr/libexec/PlistBuddy -c 'Print SUFeedURL' "$INFO_PLIST" 2>/dev/null || true)"
+[ -n "$FEED_URL" ] || die "no SUFeedURL in SupportFiles/Leios-Info.plist"
+
 # Resolve the version up front so a bad tag or an unpushed commit fails now
 # rather than after ten minutes of archiving and notarizing.
 SETTINGS="$(xcodebuild -project "$REPO_ROOT/Leios.xcodeproj" -target "$SCHEME" \
     -configuration Release -showBuildSettings 2>/dev/null)"
 VERSION="$(sed -n 's/^ *MARKETING_VERSION = //p' <<<"$SETTINGS" | head -1)"
 [ -n "$VERSION" ] || die "could not read MARKETING_VERSION from the project"
+# Sparkle orders updates by CFBundleVersion, not by the marketing string. It is a build counter
+# that only ever goes up -- it happens to have tracked the beta number so far, but 1.0 final is
+# build 6, not build 1.
+BUILD="$(sed -n 's/^ *CURRENT_PROJECT_VERSION = //p' <<<"$SETTINGS" | head -1)"
+[ -n "$BUILD" ] || die "could not read CURRENT_PROJECT_VERSION from the project"
 
 # "1.0 beta 1" -> v1.0-beta.1: first word is the version, the rest is the
 # prerelease identifier, which semver separates with a dash then dots.
@@ -76,10 +146,13 @@ VERSION_TAG="v$(awk '{ t=$1; for (i=2;i<=NF;i++) t = t (i==2 ? "-" : ".") tolowe
 # The volume name keeps the spaces; the file name does not.
 VERSION_SLUG="${VERSION// /-}"
 DMG="$OUT_DIR/Leios-$VERSION_SLUG.dmg"
+# What Sparkle downloads. The disk image stays the first-time human download.
+ZIP="$OUT_DIR/Leios-$VERSION_SLUG.zip"
 
-echo "Version:  $VERSION"
+echo "Version:  $VERSION (build $BUILD)"
 echo "Tag:      $VERSION_TAG"
 echo "Image:    $DMG"
+echo "Archive:  $ZIP"
 
 if [ "$PUBLISH" -eq 1 ]; then
     command -v gh >/dev/null 2>&1 || die "--publish needs the gh CLI (brew install gh)"
@@ -98,8 +171,24 @@ if [ "$PUBLISH" -eq 1 ]; then
     [ "$(git -C "$REPO_ROOT" rev-parse HEAD)" = "$(git -C "$REPO_ROOT" rev-parse "origin/$BRANCH")" ] \
         || die "HEAD is not pushed to origin/$BRANCH -- push before publishing"
 
-    gh release view "$VERSION_TAG" --repo "$(gh repo view --json nameWithOwner --jq .nameWithOwner)" >/dev/null 2>&1 \
+    REPO="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
+    gh release view "$VERSION_TAG" --repo "$REPO" >/dev/null 2>&1 \
         && die "release $VERSION_TAG already exists -- bump MARKETING_VERSION first"
+
+    # The appcast lives on its own branch, so a publish touches two branches.
+    git -C "$REPO_ROOT" fetch --quiet origin gh-pages 2>/dev/null \
+        || die "origin has no gh-pages branch, so there is nowhere to publish the appcast.
+       Create it once -- see the prerequisites at the top of this script."
+
+    # An update Sparkle will not offer is worse than no update: every existing install would go
+    # on reporting itself current, silently and for good. Check against the feed users read,
+    # not against the branch, so a failed push last time shows up here.
+    HIGHEST_BUILD="$(curl -fsSL "$FEED_URL" 2>/dev/null \
+        | sed -n 's/.*<sparkle:version>\([0-9][0-9]*\)<.*/\1/p' | sort -n | tail -1)"
+    HIGHEST_BUILD="${HIGHEST_BUILD:-0}"
+    [ "$BUILD" -gt "$HIGHEST_BUILD" ] \
+        || die "CURRENT_PROJECT_VERSION is $BUILD but the appcast already offers build $HIGHEST_BUILD.
+       Sparkle orders updates by that number; raise it (it is a build counter, not the beta number)."
 fi
 
 # --- archive ---------------------------------------------------------------
@@ -185,6 +274,13 @@ xcrun notarytool submit "$WORK_DIR/Leios.zip" \
 # Staple the app itself so a copy dragged out of the DMG validates offline.
 xcrun stapler staple "$APP"
 
+# Zipped after stapling, so the copy Sparkle unpacks into /Applications carries its own
+# notarization ticket rather than depending on a round trip to Apple at first launch.
+step "Packaging the update archive"
+mkdir -p "$OUT_DIR"
+rm -f "$ZIP"
+ditto -c -k --keepParent "$APP" "$ZIP"
+
 # --- package ---------------------------------------------------------------
 
 step "Building $DMG"
@@ -216,20 +312,69 @@ if [ "$PUBLISH" -eq 1 ]; then
     # One word is a final release; anything more ("1.0 beta 1") is a prerelease.
     PRERELEASE=""
     case "$VERSION" in *" "*) PRERELEASE="--prerelease" ;; esac
-    gh release create "$VERSION_TAG" "$DMG" \
+    gh release create "$VERSION_TAG" "$DMG" "$ZIP" \
         --target "$(git -C "$REPO_ROOT" rev-parse HEAD)" \
         --title "$VERSION" \
         --generate-notes \
         $PRERELEASE \
         || die "could not create the release"
     git -C "$REPO_ROOT" fetch --quiet --tags origin
+
+    step "Adding build $BUILD to the appcast"
+    # sign_update prints the two enclosure attributes ready to paste:
+    #   sparkle:edSignature="..." length="..."
+    SIGNATURE="$("$SIGN_UPDATE" "$ZIP")" || die "sign_update failed -- is the private key in the keychain?"
+
+    RELEASE_URL="$(gh release view "$VERSION_TAG" --repo "$REPO" --json url --jq .url)"
+    ENCLOSURE_URL="https://github.com/$REPO/releases/download/$VERSION_TAG/$(basename "$ZIP")"
+    # RFC 822, which is what RSS wants. LC_ALL so the month and day are English wherever this runs.
+    PUB_DATE="$(LC_ALL=C date -u '+%a, %d %b %Y %H:%M:%S +0000')"
+    # The same test that decided --prerelease above, so the channel and the GitHub flag cannot
+    # drift apart. An item with no channel reaches every user; this one reaches only opted-in ones.
+    CHANNEL=""
+    case "$VERSION" in *" "*) CHANNEL=$'\n            <sparkle:channel>beta</sparkle:channel>' ;; esac
+
+    cat > "$WORK_DIR/item.xml" <<ITEM
+        <item>
+            <title>$VERSION</title>
+            <pubDate>$PUB_DATE</pubDate>
+            <sparkle:version>$BUILD</sparkle:version>
+            <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>$CHANNEL
+            <sparkle:minimumSystemVersion>27.0</sparkle:minimumSystemVersion>
+            <sparkle:releaseNotesLink>$RELEASE_URL</sparkle:releaseNotesLink>
+            <enclosure url="$ENCLOSURE_URL" type="application/octet-stream" $SIGNATURE />
+        </item>
+ITEM
+
+    FEED_DIR="$WORK_DIR/gh-pages"
+    git -C "$REPO_ROOT" worktree add --quiet "$FEED_DIR" gh-pages \
+        || die "could not check out gh-pages"
+    # The worktree outlives the script's own temp dir cleanup unless it is removed explicitly.
+    trap 'git -C "$REPO_ROOT" worktree remove --force "$WORK_DIR/gh-pages" 2>/dev/null; rm -rf "$WORK_DIR"' EXIT
+
+    [ -f "$FEED_DIR/appcast.xml" ] || die "gh-pages has no appcast.xml -- see the prerequisites"
+    grep -q "NEW ITEMS GO BELOW THIS LINE" "$FEED_DIR/appcast.xml" \
+        || die "the marker comment is gone from appcast.xml; this script inserts new items after it"
+
+    # Newest first, straight under the marker. `r` rather than awk -v: the awk macOS ships
+    # rejects a multi-line value passed that way.
+    sed -e "/NEW ITEMS GO BELOW THIS LINE/r $WORK_DIR/item.xml" \
+        "$FEED_DIR/appcast.xml" > "$FEED_DIR/appcast.xml.new"
+    mv "$FEED_DIR/appcast.xml.new" "$FEED_DIR/appcast.xml"
+    xmllint --noout "$FEED_DIR/appcast.xml" || die "the generated appcast is not well-formed XML"
+
+    git -C "$FEED_DIR" add appcast.xml
+    git -C "$FEED_DIR" commit --quiet -m "Appcast: $VERSION (build $BUILD)"
+    git -C "$FEED_DIR" push --quiet origin gh-pages || die "could not push the appcast"
 fi
 
 echo
 echo "Done: $DMG"
+echo "      $ZIP"
 echo "Gatekeeper accepts it -- opens on any Mac with no warning."
 if [ "$PUBLISH" -eq 1 ]; then
     gh release view "$VERSION_TAG" --json url --jq .url
+    echo "Appcast updated; installed copies will offer build $BUILD on their next check."
 else
-    echo "Not published. Re-run with --publish to cut $VERSION_TAG."
+    echo "Not published. Re-run with --publish to cut $VERSION_TAG and add it to the appcast."
 fi

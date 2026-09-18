@@ -33,6 +33,11 @@ The app and its embedded helper are both signed with a Developer ID and notarize
 Gatekeeper warning to click through. Neither is sandboxed: the engine owns `CGEventTap`s, which the
 App Sandbox forbids.
 
+Leios checks for updates on its own and offers them; it never installs one without being asked.
+**General → Updates** has the switch for that, a **Check Now** button, and **Include pre-release
+versions** for anyone who wants the betas. Both settings stay on the Mac they were set on. Versions
+before 1.0 beta 6 have no updater, so they need one manual download to reach it.
+
 ## Layout
 
 - `Leios/` — the SwiftUI settings app. Writes `~/Library/Application Support/Leios/config.json`,
@@ -100,7 +105,18 @@ xcrun notarytool store-credentials leios-notary --apple-id <apple-id> --team-id 
 ```
 
 Version, tag and image name come from `MARKETING_VERSION` — bump it on every configuration first.
-Without `--publish` the script stops at the built image, creating no tag and no release.
+Bump `CURRENT_PROJECT_VERSION` too: Sparkle orders updates by it, so it is a build counter that
+only ever rises (1.0 final is build 6, not build 1). The script refuses to publish a build the
+appcast already offers.
+
+`--publish` also uploads a ZIP of the stapled app — what Sparkle downloads, next to the DMG people
+download by hand — and adds the release to `appcast.xml` on the `gh-pages` branch, tagged as a beta
+channel item when the version has more than one word. That needs Sparkle's EdDSA key; the script's
+header has the one-time setup, and its preflight refuses to go near a build without it. Sparkle's
+tools need no install — they ship inside the package the project already depends on, so they always
+match the framework the app links, and `Scripts/release.sh --sparkle-bin` prints where they are.
+Without `--publish` the script stops at the built image, creating no tag, no release and no appcast
+entry.
 
 ## Architecture notes
 

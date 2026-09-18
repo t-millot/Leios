@@ -96,6 +96,29 @@ that arms the tap system-wide, `ScrollController.process` returns false for a co
 reproduce the event unchanged (`ScrollConfig.isNoOp`) so unprofiled apps still get their original
 event rather than a re-synthesized copy.
 
+**Updating the app means restarting the helper, because the helper lives inside the app.**
+Sparkle replaces `Leios.app` wholesale, and `LeiosHelper.app` sits in its `Contents/Library/LoginItems`
+with launchd holding it `KeepAlive`. Left alone, the swap leaves a new app talking to the old
+engine running from a replaced inode, and nothing in the UI says so. Three things in
+[Leios/AppModel.swift](Leios/AppModel.swift) cover it, and all three matter: `stopHelperForUpdate()`
+unregisters the agent from `updaterWillRelaunchApplication` (unregister, not kill — `KeepAlive`
+would restart it); `restoreHelperAfterUpdate()` puts it back on the next launch, because
+`isEnabled` is derived from `helperState` and nothing else persists the user's intent, so an
+unregistered helper otherwise reads as "the user turned Leios off"; and `restartHelperIfStale`
+compares the build number `getStatus()` reports against the app's own and re-registers once, which
+is the net for every path the first two miss — a crash, a force-quit, a drag-install over the top.
+That is also why updates are notify-and-install-on-click rather than silent: the install-on-quit
+path does not reliably reach `updaterWillRelaunchApplication`.
+
+Two settings back it, both machine-local in `UserDefaults` like `AppModel.syncEnabled` and for the
+same reason — they never enter `LeiosConfig`, so they never enter `SyncedConfig` or reach the
+helper. Sparkle's keys cannot go in `INFOPLIST_KEY_` build settings (Xcode ignores the prefix for
+anything outside its own allowlist, silently); they live in
+[SupportFiles/Leios-Info.plist](SupportFiles/Leios-Info.plist), which `GENERATE_INFOPLIST_FILE`
+merges the generated keys into. `CURRENT_PROJECT_VERSION` is what Sparkle orders updates by, so it
+is a build counter that only rises — `Scripts/release.sh` checks it against the live feed before
+it will publish.
+
 **XPC is helper-hosted, not an XPC service.** The helper is a launchd agent (`SupportFiles/com.tmillot.Leios.Helper.plist`, `MachServices`), registered by the app through `SMAppService.agent(plistName:)`. `XPCService` rejects connections whose code-signing team doesn't match its own — with a `#if DEBUG` escape hatch for unsigned local builds, so a Release build without a signing team on **both** targets silently refuses to talk to its own app.
 
 **Button capture** is why `ButtonInputReceiver` has a mode where the button tap runs with nothing mapped: the settings app arms `captureNextButton` over XPC while the pointer is inside `ButtonCaptureZone`, the helper swallows the next press (and its release) and replies with the number. That is what makes an already-assigned button capturable. `SwitchMaster` keeps the tap alive for the duration via `buttons.isCapturing`, ignoring the buttons kill switch.

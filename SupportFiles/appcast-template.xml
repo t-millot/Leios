@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Starting point for the appcast served from the gh-pages branch.
+
+    This file is not the feed: it is what the feed is created from, once. Copy it to appcast.xml
+    on gh-pages (see the prerequisites in Scripts/release.sh) and never edit it again — from then
+    on a publishing run of release.sh inserts each release as a new <item> directly under the marker
+    comment below, newest first.
+
+    Items without a <sparkle:channel> reach everyone. Prereleases carry <sparkle:channel>beta,
+    which only reaches users who turned on "Include pre-release versions" in the General tab.
+-->
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+    <channel>
+        <title>Leios</title>
+        <link>https://t-millot.github.io/Leios/appcast.xml</link>
+        <description>Updates for Leios.</description>
+        <language>en</language>
+        <!-- NEW ITEMS GO BELOW THIS LINE -->
+    </channel>
+</rss>
