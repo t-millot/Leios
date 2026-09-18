@@ -180,6 +180,13 @@ if [ "$PUBLISH" -eq 1 ]; then
         || die "origin has no gh-pages branch, so there is nowhere to publish the appcast.
        Create it once -- see the prerequisites at the top of this script."
 
+    # Checked here rather than at the gh call, so a missing changelog fails now instead of after
+    # ten minutes of notarizing. Auto-generated commit titles are not release notes, and this text
+    # is also what Sparkle links to from the update window.
+    NOTES_FILE="$REPO_ROOT/ReleaseNotes/$VERSION_TAG.md"
+    [ -s "$NOTES_FILE" ] \
+        || die "no release notes at ReleaseNotes/$VERSION_TAG.md -- write them before publishing."
+
     # An update Sparkle will not offer is worse than no update: every existing install would go
     # on reporting itself current, silently and for good. Check against the feed users read,
     # not against the branch, so a failed push last time shows up here.
@@ -315,7 +322,7 @@ if [ "$PUBLISH" -eq 1 ]; then
     gh release create "$VERSION_TAG" "$DMG" "$ZIP" \
         --target "$(git -C "$REPO_ROOT" rev-parse HEAD)" \
         --title "$VERSION" \
-        --generate-notes \
+        --notes-file "$NOTES_FILE" \
         $PRERELEASE \
         || die "could not create the release"
     git -C "$REPO_ROOT" fetch --quiet --tags origin
