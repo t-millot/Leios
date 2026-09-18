@@ -5,13 +5,14 @@
 import Foundation
 import AppKit
 import CoreGraphics
+import CPrivateShim
 
 /// Caches `EventUtility.bundleIDOfApp(at:)`.
 ///
-/// The underlying lookup copies the whole on-screen window list — measured at ~0.3–0.5 ms of
-/// synchronous IPC to the WindowServer, and the copy itself is essentially all of it, so there is
-/// nothing to win by parsing the result faster. That is a long time to spend inside an event tap
-/// callback, where it stalls input for *every* app, not just ours.
+/// Even on the SkyLight fast path the underlying lookup is ~40 µs of synchronous IPC to the
+/// WindowServer, and ~300 µs if it has to fall back to copying the window list. Either is a long
+/// time to spend inside an event tap callback, where it stalls input for *every* app, not just
+/// ours.
 ///
 /// The answer can only change if the pointer moves or the window layout changes, so we memoize it
 /// and invalidate on both. Scrolling a page in bursts — the common case — parks the pointer in one
@@ -33,10 +34,16 @@ final class AppUnderPointerCache {
     private var cachedPoint: CGPoint?
     private var cachedBundleID: String?
 
+    /// `NSRunningApplication` costs about as much as the window hit test itself (~34 µs), and a pid
+    /// keeps its bundle identifier for the life of the process, so translating is worth caching
+    /// separately from the point lookup. Dropped wholesale when any app exits, because pids are
+    /// reused and a stale entry would name the wrong app.
+    private var pidToBundleID: [pid_t: String] = [:]
+
     private var observers: [NSObjectProtocol] = []
     private var isObserving = false
 
-    /// Number of times the underlying window-list walk actually ran. Only the tests read it; it is
+    /// Number of times the underlying window hit test actually ran. Only the tests read it; it is
     /// the one way to observe a cache that is otherwise transparent by design.
     private(set) var lookupCount = 0
 
@@ -56,7 +63,7 @@ final class AppUnderPointerCache {
         let key = CGPoint(x: floor(point.x), y: floor(point.y))
         if let cachedPoint, cachedPoint == key { return cachedBundleID }
 
-        let result = EventUtility.bundleIDOfApp(at: point)
+        let result = EventUtility.pidOfApp(at: point).flatMap { bundleID(forPid: $0) }
         lookupCount += 1
         cachedPoint = key
         cachedBundleID = result
@@ -69,6 +76,13 @@ final class AppUnderPointerCache {
         cachedBundleID = nil
     }
 
+    private func bundleID(forPid pid: pid_t) -> String? {
+        if let cached = pidToBundleID[pid] { return cached }
+        guard let bundleID = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier else { return nil }
+        pidToBundleID[pid] = bundleID
+        return bundleID
+    }
+
     // MARK: Invalidation sources
 
     func startObserving() {
@@ -76,12 +90,15 @@ final class AppUnderPointerCache {
         guard !isObserving else { return }
         isObserving = true
 
+        // Worth saying once: if a future macOS drops the SkyLight symbols we keep working, but every
+        // cache miss goes back to costing ~300 µs instead of ~40 µs, and only this line would say so.
+        Log.engine.info("App-under-pointer fast path (SkyLight): \(MPWindowAtPointIsAvailable() ? "available" : "UNAVAILABLE, falling back to the window list", privacy: .public)")
+
         // Anything that can put a different app's window under a stationary pointer. Window moves
         // within one app are deliberately not covered — see the note on staleness above.
         let names: [Notification.Name] = [
             NSWorkspace.didActivateApplicationNotification,
             NSWorkspace.didLaunchApplicationNotification,
-            NSWorkspace.didTerminateApplicationNotification,
             NSWorkspace.didHideApplicationNotification,
             NSWorkspace.didUnhideApplicationNotification,
             NSWorkspace.activeSpaceDidChangeNotification,
@@ -94,6 +111,16 @@ final class AppUnderPointerCache {
             }
             observers.append(observer)
         }
+
+        // An app exiting frees its pid for reuse, so this one drops the translation map too.
+        let terminated = center.addObserver(forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: nil) { [weak self] _ in
+            guard let self else { return }
+            self.thread.perform {
+                self.pidToBundleID.removeAll()
+                self.invalidate()
+            }
+        }
+        observers.append(terminated)
 
         CGDisplayRegisterReconfigurationCallback(AppUnderPointerCache.displayReconfigured, Unmanaged.passUnretained(self).toOpaque())
     }
@@ -108,6 +135,7 @@ final class AppUnderPointerCache {
         observers.removeAll()
 
         CGDisplayRemoveReconfigurationCallback(AppUnderPointerCache.displayReconfigured, Unmanaged.passUnretained(self).toOpaque())
+        pidToBundleID.removeAll()
         invalidate()
     }
 

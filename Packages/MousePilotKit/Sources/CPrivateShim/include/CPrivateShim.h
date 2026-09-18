@@ -134,6 +134,25 @@ extern CGError CGSSetSymbolicHotKeyEnabled(CGSSymbolicHotKey hotKey, bool isEnab
 extern CGError CGSGetSymbolicHotKeyValue(CGSSymbolicHotKey hotKey, uint16_t *outKeyEquivalent, uint16_t *outVirtualKeyCode, CGSModifierFlags *outModifiers);
 extern CGError CGSSetSymbolicHotKeyValue(CGSSymbolicHotKey hotKey, uint16_t keyEquivalent, uint16_t virtualKeyCode, CGSModifierFlags modifiers);
 
+// MARK: - SkyLight window hit testing
+
+/// pid of the app owning the frontmost window at `point`, when that window is at level 0 (a normal
+/// app window, as opposed to a menu, panel, Dock tile or wallpaper).
+///
+/// `point` is in the CG global display coordinate space — top-left origin, the same space
+/// `CGEventGetLocation` returns, *not* AppKit's bottom-left `NSEvent.mouseLocation`.
+///
+/// Answers the same question as walking `CGWindowListCopyWindowInfo`, but without copying the whole
+/// window list: one hit test in the WindowServer instead of every window's metadata.
+///
+/// Returns false when SkyLight is unavailable, when no window covers the point, or when the topmost
+/// window there is not at level 0. A false return means "no answer", not "no app" — callers fall
+/// back to the window list rather than treating it as nil.
+bool MPPidOfWindowAtPoint(CGPoint point, pid_t *outPid);
+
+/// True if every SkyLight symbol `MPPidOfWindowAtPoint` needs could be resolved.
+bool MPWindowAtPointIsAvailable(void);
+
 // MARK: - Misc helpers
 
 /// Convert a mach absolute time (e.g. CGEventGetTimestamp) to seconds.

@@ -88,12 +88,30 @@ enum EventUtility {
 
     // MARK: App under pointer
 
-    /// Bundle identifier of the app owning the frontmost normal-level window at `point`.
-    /// Uses the window list (no AppKit main-thread requirement).
+    /// pid of the app owning the frontmost normal-level window at `point`.
     ///
-    /// Copying the window list costs ~0.3–0.5 ms of synchronous IPC, which is far too long to spend
-    /// in an event tap callback. Engine code goes through `AppUnderPointerCache`, never here.
-    static func bundleIDOfApp(at point: CGPoint) -> String? {
+    /// `point` is in the CG global display coordinate space (top-left origin), which is what
+    /// `CGEvent.location` gives us — the same space the window list reports bounds in, so no flip.
+    ///
+    /// Prefers SkyLight's window hit test, which asks the WindowServer about one point instead of
+    /// copying every window's metadata: ~37 µs against ~310 µs, measured. Falls back to the window
+    /// list when SkyLight declines, so behaviour is unchanged if the private symbols ever go away.
+    ///
+    /// Still far too slow for an event tap callback either way — engine code goes through
+    /// `AppUnderPointerCache`, never here.
+    static func pidOfApp(at point: CGPoint) -> pid_t? {
+        var pid: pid_t = 0
+        if MPPidOfWindowAtPoint(point, &pid), pid != ProcessInfo.processInfo.processIdentifier {
+            return pid
+        }
+        // Either SkyLight has no answer, or the window it found is our own overlay (`ScreenDrawer`
+        // during a drag). The walk below keeps looking past our own windows, which is what we want.
+        return pidOfAppViaWindowList(at: point)
+    }
+
+    /// The original window-list walk: the fallback path, and the oracle the SkyLight path is tested
+    /// against.
+    static func pidOfAppViaWindowList(at point: CGPoint) -> pid_t? {
         guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return nil }
         let ownPid = ProcessInfo.processInfo.processIdentifier
         for info in list {
@@ -101,11 +119,19 @@ enum EventUtility {
             guard let pid = info[kCGWindowOwnerPID as String] as? pid_t, pid != ownPid else { continue }
             guard let boundsDict = info[kCGWindowBounds as String] as? NSDictionary,
                   let bounds = CGRect(dictionaryRepresentation: boundsDict) else { continue }
-            if bounds.contains(point) {
-                return NSRunningApplication(processIdentifier: pid)?.bundleIdentifier
-            }
+            if bounds.contains(point) { return pid }
         }
         return nil
+    }
+
+    /// Convenience for callers with no pid cache of their own. `AppUnderPointerCache` resolves the
+    /// bundle identifier itself, because `NSRunningApplication` costs about as much as the hit test.
+    static func bundleIDOfApp(at point: CGPoint) -> String? {
+        pidOfApp(at: point).flatMap { NSRunningApplication(processIdentifier: $0)?.bundleIdentifier }
+    }
+
+    static func bundleIDOfAppViaWindowList(at point: CGPoint) -> String? {
+        pidOfAppViaWindowList(at: point).flatMap { NSRunningApplication(processIdentifier: $0)?.bundleIdentifier }
     }
 
 }
