@@ -14,7 +14,6 @@ final class ScrollAnalyzerTests: XCTestCase {
     func testConsecutiveTicksAndSwipes() {
         let analyzer = ScrollAnalyzer()
         var clock = 100.0
-        analyzer.now = { clock }
         let cfg = config()
 
         var r = analyzer.update(tickAt: clock, direction: .down, config: cfg)
@@ -50,7 +49,6 @@ final class ScrollAnalyzerTests: XCTestCase {
     func testSwipeNotCountedWhenTooFewTicks() {
         let analyzer = ScrollAnalyzer()
         var clock = 10.0
-        analyzer.now = { clock }
         let cfg = config()
         _ = analyzer.update(tickAt: clock, direction: .down, config: cfg)   // single tick
         clock += 0.3
@@ -64,7 +62,6 @@ final class ScrollAnalyzerTests: XCTestCase {
         for (cfg, expectSeeded) in [(high, true), (regular, false)] {
             let analyzer = ScrollAnalyzer()
             var clock = 1.0
-            analyzer.now = { clock }
             _ = analyzer.update(tickAt: clock, direction: .down, config: cfg)
             clock += 0.02
             let r = analyzer.update(tickAt: clock, direction: .down, config: cfg)

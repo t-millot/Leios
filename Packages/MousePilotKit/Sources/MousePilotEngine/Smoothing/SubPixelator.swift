@@ -42,7 +42,9 @@ final class SubPixelator {
     }
 
     func intDelta(_ inputDelta: Double) -> Double {
-        if inputDelta == 0 { return 0 }
+        // NaN has no sign, so the biased pixelator has no rounding function to pick and the unwrap
+        // below would trap. The asserts that would catch a NaN upstream are compiled out in Release.
+        if inputDelta == 0 || inputDelta.isNaN { return 0 }
         let rf: RoundingFunction
         if isBiased && roundingFunction == nil {
             rf = SubPixelator.biasedRoundingFunction(for: inputDelta)!
@@ -63,7 +65,7 @@ final class SubPixelator {
 
     /// The output a certain input would yield, without changing state.
     func peekIntDelta(_ inputDelta: Double) -> Double {
-        if inputDelta == 0 { return 0 }
+        if inputDelta == 0 || inputDelta.isNaN { return 0 }
         let rf: RoundingFunction
         if let existing = roundingFunction {
             rf = existing

@@ -68,6 +68,13 @@ final class ModifiedDrag {
         if activationState == .inUse {
             return
         }
+        // `SwitchMaster.reevaluate()` re-arms on every modifier change, so a keyboard modifier pressed
+        // while a drag button is held used to land here again and re-run the arming: that resets the
+        // accumulated offset (moving the usage threshold) and re-runs the output's `initialize`, which
+        // for a two-finger swipe cancels whatever scroll animation is in flight.
+        if activationState == .initialized && self.gesture == gesture {
+            return
+        }
         guard let output = outputs[gesture] else {
             Log.drag.error("No output for drag gesture \(gesture.rawValue)")
             return

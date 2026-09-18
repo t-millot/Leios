@@ -34,9 +34,16 @@ final class TouchAnimator {
     var minBaseCurveTime: CFTimeInterval = 0.160
 
     private let clockPool: FrameClockPool
+    /// The clock the *running* animation is subscribed to. Deliberately not reused across cold
+    /// starts: the pool replaces its clocks on every screen-parameter change, so a clock cached here
+    /// can already be dead by the next animation.
     private var clock: FrameClock?
+    /// Display whose clock the next cold start should use.
+    private var linkedDisplay: CGDirectDisplayID?
     private var clientCallback: Callback?
     private(set) var animationCurve: Curve?
+    /// Cached instead of casting `animationCurve` on every frame.
+    private var hybridCurve: HybridCurve?
 
     private var animationDurationRaw: CFTimeInterval?
     private var animationDurationRawInFrames: Int?
@@ -76,7 +83,7 @@ final class TouchAnimator {
     /// Picks the frame clock of `display`. Only takes effect for the next cold start.
     func link(to display: CGDirectDisplayID) {
         if isRunning { return }
-        clock = clockPool.clock(for: display)
+        linkedDisplay = display
     }
 
     func linkToMainScreen() {
@@ -87,8 +94,11 @@ final class TouchAnimator {
 
     func start(params: StartParamsCalculation, callback: @escaping Callback) {
         let p = params(animationValueLeft, isRunning, animationCurve, lastAnimationSpeed)
-        lastAnimationValue = .zero
+        // Reset only once the params actually asked for a start. Mac Mouse Fix zeroes this first, so a
+        // declined start on a running animation makes the *next* frame re-emit everything the animation
+        // has already delivered as one jump.
         guard p.doStart, let curve = p.curve else { return }
+        lastAnimationValue = .zero
         startUnsafe(durationRaw: p.duration, durationRawInFrames: p.durationInFrames, value: p.vector, animationCurve: curve, callback: callback)
     }
 
@@ -99,6 +109,7 @@ final class TouchAnimator {
 
         clientCallback = callback
         self.animationCurve = animationCurve
+        hybridCurve = animationCurve as? HybridCurve
 
         let wasRunning = isRunning
 
@@ -129,16 +140,24 @@ final class TouchAnimator {
         }
     }
 
+    /// Resolves a clock from the pool on every cold start. Caching one across animations used to
+    /// leave the animator subscribed to a clock the pool had already torn down after a screen-parameter
+    /// change, which marks the animator running while no frame can ever arrive — smooth scrolling
+    /// then stops until something resets it.
     private func startClock() {
-        if clock == nil { clock = clockPool.clock(for: CGMainDisplayID()) }
-        guard let clock else {
+        guard let clock = clockPool.clock(for: linkedDisplay ?? CGMainDisplayID()) else {
             Log.engine.error("TouchAnimator: no frame clock available; cannot animate")
             return
         }
-        isRunning = true
-        clock.subscribe(ObjectIdentifier(self)) { [weak self] timing in
+        self.clock = clock
+        guard clock.subscribe(ObjectIdentifier(self), { [weak self] timing in
             self?.frameCallback(timing)
+        }) else {
+            Log.engine.error("TouchAnimator: frame clock was already torn down; cannot animate")
+            self.clock = nil
+            return
         }
+        isRunning = true
     }
 
     // MARK: Cancel / stop
@@ -210,7 +229,7 @@ final class TouchAnimator {
 
         // Momentum hint
         var momentumHint: MomentumHint = .none
-        if let hybridCurve = animationCurve as? HybridCurve {
+        if let hybridCurve {
             var subCurve = hybridCurve.subCurve(at: animationTimeUnit)
             if lastAnimationTimeUnit != -1 {
                 // Only hint 'drag' when all of this frame's pixels come from the drag curve.

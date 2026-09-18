@@ -22,7 +22,10 @@ struct FrameTiming {
 protocol FrameClock: AnyObject {
     var nominalTimeBetweenFrames: CFTimeInterval { get }
     /// Adds a subscriber; the clock runs while it has subscribers. Callbacks arrive on the engine run loop.
-    func subscribe(_ token: ObjectIdentifier, _ callback: @escaping (FrameTiming) -> Void)
+    /// Returns false when the clock has been torn down and will never tick again, so the caller can
+    /// pick a live one instead of waiting for a frame that cannot arrive.
+    @discardableResult
+    func subscribe(_ token: ObjectIdentifier, _ callback: @escaping (FrameTiming) -> Void) -> Bool
     func unsubscribe(_ token: ObjectIdentifier)
 }
 
@@ -31,6 +34,10 @@ final class CADisplayLinkClock: NSObject, FrameClock {
 
     let displayID: CGDirectDisplayID
     private var link: CADisplayLink?
+    /// Subscribed to and ticked on the engine thread, but torn down from the main thread when the
+    /// pool rebuilds or stops, so this one dictionary is the engine's only shared mutable state here.
+    /// Callbacks are always invoked outside the lock, since a callback may subscribe or unsubscribe.
+    private let lock = NSLock()
     private var subscribers: [ObjectIdentifier: (FrameTiming) -> Void] = [:]
     private var lastTimestamp: CFTimeInterval = 0
 
@@ -45,32 +52,51 @@ final class CADisplayLinkClock: NSObject, FrameClock {
     }
 
     var nominalTimeBetweenFrames: CFTimeInterval {
+        lock.lock(); defer { lock.unlock() }
         let d = link?.duration ?? 0
         return d > 0 ? d : 1.0 / 60.0
     }
 
-    func subscribe(_ token: ObjectIdentifier, _ callback: @escaping (FrameTiming) -> Void) {
+    /// True while the clock can still deliver frames. A subscriber that arrives after the pool
+    /// dropped this clock would otherwise wait forever for a tick that can no longer come.
+    private(set) var isValid = true
+
+    @discardableResult
+    func subscribe(_ token: ObjectIdentifier, _ callback: @escaping (FrameTiming) -> Void) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard isValid else { return false }
         let wasEmpty = subscribers.isEmpty
         subscribers[token] = callback
         if wasEmpty {
             lastTimestamp = 0
             link?.isPaused = false
         }
+        return true
     }
 
     func unsubscribe(_ token: ObjectIdentifier) {
+        lock.lock(); defer { lock.unlock() }
         subscribers[token] = nil
         if subscribers.isEmpty { link?.isPaused = true }
     }
 
     func invalidate() {
+        lock.lock()
+        isValid = false
         subscribers.removeAll()
+        let link = self.link
+        self.link = nil
+        lock.unlock()
+        // Outside the lock: tearing the link down touches run loops, and nothing here needs the lock
+        // once the clock is marked invalid and detached.
         link?.invalidate()
-        link = nil
     }
 
     @objc private func tick(_ link: CADisplayLink) {
-        guard !subscribers.isEmpty else { return }
+        lock.lock()
+        let callbacks = Array(subscribers.values)
+        lock.unlock()
+        guard !callbacks.isEmpty else { return }
         let now = CACurrentMediaTime()
         let nominal = nominalTimeBetweenFrames
         let last = link.timestamp
@@ -78,7 +104,7 @@ final class CADisplayLinkClock: NSObject, FrameClock {
         var between = target - last
         if between <= 0 { between = nominal }
         let timing = FrameTiming(now: now, lastFrame: last, outFrame: target, timeBetweenFrames: between, nominalTimeBetweenFrames: nominal)
-        for callback in Array(subscribers.values) {
+        for callback in callbacks {
             callback(timing)
         }
     }

@@ -18,6 +18,13 @@ final class GestureScrollSimulator {
     /// was decided not to start. Replaces Mac Mouse Fix's `afterStartingMomentumScroll:` + dispatch-group wait.
     var onMomentumStarted: (() -> Void)?
 
+    /// True from the moment the momentum animator is asked to start until its first callback. A stop in
+    /// that window has to resolve `onMomentumStarted` too — otherwise nothing ever reports back and
+    /// `TwoFingerSwipeOutput` keeps the pointer frozen until its watchdog fires half a second later.
+    /// It is deliberately *not* set while a one-shot merely waits for a momentum scroll that has not
+    /// been requested yet, so installing the callback and then posting an `ended` phase cannot fire it early.
+    private var momentumStartPending = false
+
     /// Ports `GeneralConfig.mouseMovingMaxIntervalLarge`.
     static let mouseMovingMaxIntervalLarge: CFTimeInterval = 0.1
 
@@ -81,7 +88,12 @@ final class GestureScrollSimulator {
     // MARK: Momentum scroll
 
     func stopMomentumScroll() {
+        let wasPending = momentumStartPending
+        momentumStartPending = false
         momentumAnimator.cancel()
+        // Cancelled before its first frame, so the `.start` callback that normally resolves the
+        // one-shot will never run.
+        if wasPending { fireMomentumStarted() }
     }
 
     private func fireMomentumStarted() {
@@ -101,6 +113,7 @@ final class GestureScrollSimulator {
         momentumAnimator.resetSubPixelator()
         momentumAnimator.linkToMainScreen()
 
+        momentumStartPending = true
         momentumAnimator.start(params: { [self] _, _, _, _ in
             scrollLinePixelator.reset()
             let initialVelocity = exitVelocity
@@ -131,11 +144,18 @@ final class GestureScrollSimulator {
                 postGestureScrollEvent(gesture: .zero, line: .zero, lineInt: .zero, point: .zero, phase: .cancelled, momentumPhase: .none, invertedFromDevice: invertedFromDevice)
             }
             if animationPhase == .start {
+                momentumStartPending = false
                 fireMomentumStarted()
             }
         })
 
-        // The params closure ran synchronously; if it declined to start, the one-shot already fired.
+        // The params closure ran synchronously. If it declined to start — or the animator could not
+        // find a frame clock to run on — no callback is ever coming, so resolve the one-shot now
+        // instead of leaving the caller's watchdog to notice.
+        if !momentumAnimator.isRunning {
+            momentumStartPending = false
+            fireMomentumStarted()
+        }
     }
 
     // MARK: Vectors

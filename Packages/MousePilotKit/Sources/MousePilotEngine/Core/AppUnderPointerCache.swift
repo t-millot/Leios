@@ -40,6 +40,11 @@ final class AppUnderPointerCache {
     /// reused and a stale entry would name the wrong app.
     private var pidToBundleID: [pid_t: String] = [:]
 
+    /// Same deal for "did a Wacom driver post this event", which the scroll tap asks on every tick
+    /// and which costs a `proc_pidpath` syscall to answer. Dropped with `pidToBundleID`, for the
+    /// same reason: a reused pid would otherwise keep the previous process's answer.
+    private var pidIsWacom: [pid_t: Bool] = [:]
+
     private var observers: [NSObjectProtocol] = []
     private var isObserving = false
 
@@ -74,6 +79,20 @@ final class AppUnderPointerCache {
         thread.assertOnEngineThread()
         cachedPoint = nil
         cachedBundleID = nil
+    }
+
+    /// Whether `event` was posted by the Wacom userspace driver, whose scroll events the engine must
+    /// pass through untouched.
+    func isWacomEvent(_ event: CGEvent) -> Bool {
+        thread.assertOnEngineThread()
+        let senderPid = event.getIntegerValueField(.eventSourceUnixProcessID)
+        // Hardware wheels report no sending process, so the common case never reaches the syscall.
+        if senderPid == 0 { return false }
+        let pid = pid_t(senderPid)
+        if let cached = pidIsWacom[pid] { return cached }
+        let result = EventUtility.isWacomProcess(pid: pid)
+        pidIsWacom[pid] = result
+        return result
     }
 
     private func bundleID(forPid pid: pid_t) -> String? {
@@ -117,6 +136,7 @@ final class AppUnderPointerCache {
             guard let self else { return }
             self.thread.perform {
                 self.pidToBundleID.removeAll()
+                self.pidIsWacom.removeAll()
                 self.invalidate()
             }
         }
@@ -136,6 +156,7 @@ final class AppUnderPointerCache {
 
         CGDisplayRemoveReconfigurationCallback(AppUnderPointerCache.displayReconfigured, Unmanaged.passUnretained(self).toOpaque())
         pidToBundleID.removeAll()
+        pidIsWacom.removeAll()
         invalidate()
     }
 

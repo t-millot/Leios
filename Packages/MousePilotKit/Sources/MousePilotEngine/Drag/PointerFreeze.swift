@@ -33,6 +33,7 @@ final class PointerFreeze {
 
     // Main-thread state
     private let puppetView = MainActorBox<NSImageView?>(nil)
+    private let puppetDraws = PuppetDrawQueue()
 
     init(thread: EngineThread) {
         self.thread = thread
@@ -85,6 +86,10 @@ final class PointerFreeze {
             display = EventUtility.display(at: origin) ?? CGMainDisplayID()
             makeCursorSettable()
             let pos = puppetPosition
+            puppetDraws.reset()
+            // Draw before hiding, so there is never a moment with neither the real nor the puppet
+            // cursor on screen. `showCursor` goes through the same queue, which is what keeps the
+            // hide and the show in order.
             DispatchQueue.main.async { [self] in
                 MainActor.assumeIsolated {
                     drawPuppet(at: pos, fresh: true)
@@ -104,7 +109,11 @@ final class PointerFreeze {
             dy = event.getIntegerValueField(.mouseEventDeltaY)
         }
         lastEventTimestamp = CACurrentMediaTime()
-        lastEventDelta = abs(max(dx, dy))
+        // Deviation from Mac Mouse Fix, which computes `llabs(MAX(dx, dy))`: for a move that is
+        // negative on both axes that takes the magnitude of the *smaller* motion, so a fast
+        // up-and-left flick reads as a stationary pointer and `unfreeze` skips the flick suppression
+        // interval. Both axes are magnitudes here before the max is taken.
+        lastEventDelta = max(abs(dx), abs(dy))
         CGWarpMouseCursorPosition(origin)
         if keepPointerMoving {
             var pos = puppetPosition
@@ -114,8 +123,14 @@ final class PointerFreeze {
             pos.x = clip(pos.x, bounds.minX, bounds.maxX - 1)
             pos.y = clip(pos.y, bounds.minY, bounds.maxY - 1)
             puppetPosition = pos
-            DispatchQueue.main.async { [self] in
-                MainActor.assumeIsolated { drawPuppet(at: pos, fresh: false) }
+            // A high-report-rate mouse sends up to 8000 of these a second, far more often than the
+            // display can show them. Coalesce: one redraw in flight at a time, always rendering the
+            // newest position, instead of one main-thread wakeup per report.
+            if puppetDraws.post(pos) {
+                DispatchQueue.main.async { [self] in
+                    let latest = puppetDraws.take()
+                    MainActor.assumeIsolated { drawPuppet(at: latest, fresh: false) }
+                }
             }
         }
     }
@@ -165,12 +180,18 @@ final class PointerFreeze {
         tap = nil
     }
 
+    /// Hiding is queued on the main thread (see `freeze`), so showing has to take the same queue.
+    /// Running it inline on the engine thread instead lets a drag that ends before the hide has been
+    /// serviced show first and hide second, leaving the pointer invisible for the rest of the session.
+    /// If the process dies before this runs, the WindowServer releases the hide with the connection.
     private func showCursor() {
         guard cursorHidden else { return }
         cursorHidden = false
         makeCursorSettable()
-        CGDisplayShowCursor(CGMainDisplayID())
-        CGDisplayShowCursor(CGMainDisplayID()) // twice for good measure
+        DispatchQueue.main.async {
+            CGDisplayShowCursor(CGMainDisplayID())
+            CGDisplayShowCursor(CGMainDisplayID()) // twice for good measure
+        }
     }
 
     // MARK: Suppression interval (process-global side effect — always restored)
@@ -224,6 +245,35 @@ final class PointerFreeze {
     private static func quartzToCocoa(_ rect: NSRect) -> NSRect {
         let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
         return NSRect(x: rect.origin.x, y: primaryHeight - rect.origin.y - rect.height, width: rect.width, height: rect.height)
+    }
+}
+
+/// Coalesces puppet-cursor redraws between the engine thread, which produces a position per mouse
+/// report, and the main thread, which can only draw once per frame.
+private final class PuppetDrawQueue: @unchecked Sendable {
+    private let lock = NSLock()
+    private var pending = false
+    private var position: CGPoint = .zero
+
+    /// Records the newest position. Returns true when the caller has to schedule a draw, which is
+    /// only when none is already in flight.
+    func post(_ newPosition: CGPoint) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        position = newPosition
+        if pending { return false }
+        pending = true
+        return true
+    }
+
+    /// The newest recorded position; lets the next `post` schedule again.
+    func take() -> CGPoint {
+        lock.lock(); defer { lock.unlock() }
+        pending = false
+        return position
+    }
+
+    func reset() {
+        lock.lock(); pending = false; lock.unlock()
     }
 }
 

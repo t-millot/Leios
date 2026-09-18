@@ -60,7 +60,12 @@ final class EventTap {
             if let port = tap.machPort, tap.isEnabled { CGEvent.tapEnable(tap: port, enable: true) }
             return Unmanaged.passUnretained(event)
         case .tapDisabledByUserInput:
+            // The tap really is off now, so `isEnabled` has to say so — otherwise the `on == isEnabled`
+            // short-circuit in `enable` swallows every later attempt to switch it back on and the tap
+            // stays dead for the rest of the session. Deliberately not re-enabling here (Mac Mouse Fix
+            // does the same): the next `SwitchMaster.reevaluate()` is what brings it back.
             tap.wasDisabledByUserInput = true
+            tap.isEnabled = false
             Log.engine.warning("EventTap \(tap.name): disabled by user input")
             return Unmanaged.passUnretained(event)
         default:

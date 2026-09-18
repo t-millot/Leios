@@ -21,6 +21,24 @@ final class TwoFingerSwipeOutput: DragOutput, EmergencyCleanable {
     private var eventPhase: IOHIDPhase = .undefined
     private var shouldStartMomentumScroll = false
     private var watchdog: CFRunLoopTimer?
+    /// Fixed for the whole gesture, captured when the drag becomes usable.
+    private var naturalDirection = true
+
+    /// Built once rather than per mouse report: this is the only escaping closure on the drag hot
+    /// path, and a high-report-rate mouse would otherwise allocate a context for it thousands of
+    /// times a second.
+    private lazy var smoothingCallback: TouchAnimator.Callback = { [unowned self] deltaVec, animatorPhase, _ in
+        if animatorPhase == .end {
+            if shouldStartMomentumScroll {
+                gestureSim.postGestureScroll(dx: 0, dy: 0, phase: .ended, autoMomentumScroll: true, invertedFromDevice: naturalDirection)
+            }
+            shouldStartMomentumScroll = false
+            return
+        }
+        if animatorPhase == .canceled { return }
+        gestureSim.postGestureScroll(dx: Int64(deltaVec.x), dy: Int64(deltaVec.y), phase: eventPhase, autoMomentumScroll: true, invertedFromDevice: naturalDirection)
+        eventPhase = .changed
+    }
 
     init(thread: EngineThread, clockPool: FrameClockPool, gestureSim: GestureScrollSimulator, pointerFreeze: PointerFreeze, scroll: ScrollController, lockPointer: @escaping () -> Bool) {
         self.thread = thread
@@ -37,6 +55,7 @@ final class TwoFingerSwipeOutput: DragOutput, EmergencyCleanable {
     }
 
     func becameInUse(drag: ModifiedDrag) {
+        naturalDirection = drag.naturalDirection
         if lockPointer() {
             pointerFreeze.freezePointer(at: drag.usageOrigin)
         } else {
@@ -49,26 +68,15 @@ final class TwoFingerSwipeOutput: DragOutput, EmergencyCleanable {
     func mouseInput(drag: ModifiedDrag, dx: Double, dy: Double, event: CGEvent) {
         let twoFingerScale = 1.0
         let firstCallback = drag.firstCallback
-        let natural = drag.naturalDirection
         // Smooth the raw deltas over ~3 frames so apps computing their own momentum see regular timing.
-        smoothingAnimator.start(params: { valueLeft, _, _, _ in
+        // The params closure is non-escaping, so only its captures live on the stack here.
+        smoothingAnimator.start(params: { [self] valueLeft, _, _, _ in
             let current = Vector(x: dx * twoFingerScale, y: dy * twoFingerScale)
             let combined = added(current, valueLeft)
-            if firstCallback { self.eventPhase = .began }
+            if firstCallback { eventPhase = .began }
             if magnitude(combined) == 0 { return .skip }
             return AnimatorStartParams(doStart: true, duration: 3.0 / 60.0, vector: combined, curve: ScrollConfig.linearCurve)
-        }, callback: { [self] deltaVec, animatorPhase, _ in
-            if animatorPhase == .end {
-                if shouldStartMomentumScroll {
-                    gestureSim.postGestureScroll(dx: 0, dy: 0, phase: .ended, autoMomentumScroll: true, invertedFromDevice: natural)
-                }
-                shouldStartMomentumScroll = false
-                return
-            }
-            if animatorPhase == .canceled { return }
-            gestureSim.postGestureScroll(dx: Int64(deltaVec.x), dy: Int64(deltaVec.y), phase: eventPhase, autoMomentumScroll: true, invertedFromDevice: natural)
-            eventPhase = .changed
-        })
+        }, callback: smoothingCallback)
     }
 
     func deactivate(drag: ModifiedDrag, cancel: Bool) {
@@ -159,7 +167,9 @@ final class ThreeFingerSwipeOutput: DragOutput, EmergencyCleanable {
     func deactivate(drag: ModifiedDrag, cancel: Bool) {
         let type: DockSwipeType = drag.usageAxis == .horizontal ? .horizontal : .vertical
         touchSim.postDockSwipe(delta: 0, type: type, phase: cancel ? .cancelled : .ended, invertedFromDevice: drag.naturalDirection)
-        if lockPointer() {
+        // Asks what actually happened, not what the setting says now: toggling "lock pointer during
+        // drag" mid-gesture would otherwise leave the pointer pinned with the drag already over.
+        if pointerFreeze.isFrozen {
             pointerFreeze.unfreeze()
         }
     }

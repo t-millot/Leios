@@ -39,7 +39,13 @@ final class Buttons {
             modifications = remapTable.modifications(for: modifierState)
             maxClickLevel = remapTable.maxLevel(button: button)
         }
-        if maxClickLevel == 0 {
+        // `maxClickLevel` describes whichever button last started a cycle, so pressing an unmapped
+        // button while a mapped one is held leaves it at 0. A release must still reach the click cycle
+        // whenever *this* button's press did, or it passes through to the system with no matching
+        // press and its release callbacks never run — which strands the button modifier it installed.
+        // Mac Mouse Fix keeps one shared value here and has the same hole.
+        let pressWasHandled = !down && (clickCycleIsActive || clickCycle.waitingForRelease(button: button))
+        if maxClickLevel == 0 && !pressWasHandled {
             return false
         }
 

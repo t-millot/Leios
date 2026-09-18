@@ -73,7 +73,10 @@ class Bezier: Curve {
         super.init()
 
         // Precalculate coefficients of the polynomial form (Wikipedia formula).
+        // Only for degrees that actually use them: the factorials below overflow `Int` past degree 20,
+        // which traps even in Release, and sampling switches to de Casteljau at exactly that point.
         let n = self.n
+        guard n <= maxDegreeForPolynomialApproach else { return }
         var cx = [Double](repeating: 0, count: n + 1)
         var cy = [Double](repeating: 0, count: n + 1)
         for j in 0...n {

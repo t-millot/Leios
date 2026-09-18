@@ -16,9 +16,6 @@ struct ScrollAnalysisResult {
 
 final class ScrollAnalyzer {
 
-    /// Injectable clock for tests.
-    var now: () -> CFTimeInterval = { CACurrentMediaTime() }
-
     private var previousScrollTickTimeStamp: CFTimeInterval = 0
     private var previousDirection: MFDirection = .none
     private var consecutiveScrollTickCounter = 0
@@ -50,6 +47,10 @@ final class ScrollAnalyzer {
         return secondsSinceLastTick > config.consecutiveScrollTickIntervalMax
     }
 
+    /// `time` is the sending event's own timestamp. Mac Mouse Fix measures the swipe-sequence speed
+    /// below against `CACurrentMediaTime()` instead, mixing the wall clock into a calculation whose
+    /// other term is event-derived: same mach time base, but it picks up whatever delay the tap
+    /// callback happened to be scheduled with. One clock throughout, and it is the accurate one.
     func update(tickAt time: CFTimeInterval, direction: MFDirection, config: ScrollConfig) -> ScrollAnalysisResult {
         var scrollDirectionDidChange = false
         if directionChanged(previousDirection, direction) {
@@ -76,7 +77,7 @@ final class ScrollAnalyzer {
             } else if secondsSinceLastTick > config.consecutiveScrollSwipeMaxInterval {
                 keepSwipes = false
             } else {
-                let tickSpeedThisSwipeSequence = Double(ticksInCurrentConsecutiveSwipeSequence) / (now() - consecutiveSwipeSequenceStartTime)
+                let tickSpeedThisSwipeSequence = Double(ticksInCurrentConsecutiveSwipeSequence) / (time - consecutiveSwipeSequenceStartTime)
                 if tickSpeedThisSwipeSequence < config.consecutiveScrollSwipeMinTickSpeed {
                     keepSwipes = false
                 }
@@ -87,7 +88,7 @@ final class ScrollAnalyzer {
             } else {
                 consecutiveScrollSwipeCounter = 0
                 consecutiveScrollSwipeCounter_ForFreeScrollWheel = 0
-                consecutiveSwipeSequenceStartTime = now()
+                consecutiveSwipeSequenceStartTime = time
                 ticksInCurrentConsecutiveSwipeSequence = 0
             }
             consecutiveScrollTickCounter = 0

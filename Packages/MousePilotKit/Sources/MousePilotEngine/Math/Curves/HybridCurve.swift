@@ -25,8 +25,29 @@ class HybridCurve: Curve {
     fileprivate var dragTimeRange: Double { dragCurve?.timeInterval.length ?? 0 }
     var dragValueRange: Double { dragCurve?.distanceInterval.length ?? 0 }
 
-    var duration: Double { baseDuration + dragTimeRange }
-    var distance: Double { baseDistance + dragValueRange }
+    // Nothing below changes after init, but `evaluate` re-derived all of it on every animation frame.
+    // `finalizeGeometry()` computes it once, so a frame costs one comparison and one scale.
+    private(set) var duration: Double = 0
+    private(set) var distance: Double = 0
+    private var baseFraction: Double = 1
+    private var baseTimeIntervalUnit: Interval = .unitInterval
+    private var baseDistanceIntervalUnit: Interval = .unitInterval
+    private var dragTimeIntervalUnit: Interval = .unitInterval
+    private var dragDistanceIntervalUnit: Interval = .unitInterval
+    private var usesDragCurve = false
+
+    /// Each subclass calls this once its intervals and drag curve are final.
+    fileprivate func finalizeGeometry() {
+        duration = baseDuration + dragTimeRange
+        distance = baseDistance + dragValueRange
+        baseFraction = duration > 0 ? baseDuration / duration : 1
+        let distanceFraction = distance > 0 ? baseDistance / distance : 1
+        baseTimeIntervalUnit = Interval(start: 0, end: baseFraction)
+        baseDistanceIntervalUnit = Interval(start: 0, end: distanceFraction)
+        dragTimeIntervalUnit = Interval(start: baseFraction, end: 1)
+        dragDistanceIntervalUnit = Interval(start: distanceFraction, end: 1)
+        usesDragCurve = dragCurve != nil && dragTimeRange > 0
+    }
 
     fileprivate static func getDragCurve(initialSpeed: Double, stopSpeed: Double, coefficient: Double, exponent: Double) -> DragCurve? {
         if initialSpeed > stopSpeed {
@@ -36,12 +57,11 @@ class HybridCurve: Curve {
     }
 
     override func evaluate(at x: Double) -> Double {
-        let baseFraction = duration > 0 ? baseDuration / duration : 1
         if baseDuration > 0 && x <= baseFraction {
             var baseCurveResult = baseCurve.evaluate(at: Math.scale(value: x, from: baseTimeIntervalUnit, to: .unitInterval, allowOutOfBounds: true))
             if baseCurveResult > 1 { baseCurveResult = 1 }
             return Math.scale(value: baseCurveResult, from: .unitInterval, to: baseDistanceIntervalUnit, allowOutOfBounds: true)
-        } else if let c = dragCurve, dragTimeRange > 0 {
+        } else if usesDragCurve, let c = dragCurve {
             let dragCurveResult = c.evaluate(at: Math.scale(value: x, from: dragTimeIntervalUnit, to: .unitInterval, allowOutOfBounds: true))
             return Math.scale(value: dragCurveResult, from: .unitInterval, to: dragDistanceIntervalUnit, allowOutOfBounds: true)
         } else {
@@ -50,13 +70,8 @@ class HybridCurve: Curve {
         }
     }
 
-    private var baseTimeIntervalUnit: Interval { Interval(start: 0, end: baseDuration / duration) }
-    private var baseDistanceIntervalUnit: Interval { Interval(start: 0, end: baseDistance / distance) }
-    private var dragTimeIntervalUnit: Interval { Interval(start: baseDuration / duration, end: 1) }
-    private var dragDistanceIntervalUnit: Interval { Interval(start: baseDistance / distance, end: 1) }
-
     func subCurve(at x: Double) -> HybridSubCurve {
-        (baseDuration > 0 && x <= baseDuration / duration) ? .base : .drag
+        (baseDuration > 0 && x <= baseFraction) ? .base : .drag
     }
 }
 
@@ -90,6 +105,7 @@ final class BezierHybridCurve: HybridCurve {
         self.dragCoefficient = dragCoefficient
         self.dragExponent = dragExponent
         self.stopSpeed = stopSpeed
+        finalizeGeometry()
     }
 
     private static func combinedDistance(transitionPoint t: Double, baseCurve: Bezier, baseDistance: Double, baseDuration: Double, dragExponent: Double, dragCoefficient: Double, stopSpeed: Double) -> Double {
@@ -170,6 +186,7 @@ final class LineHybridCurve: HybridCurve {
         self.dragCoefficient = dragCoefficient
         self.dragExponent = dragExponent
         self.stopSpeed = stopSpeed
+        finalizeGeometry()
     }
 
     static func _lineInit(minDuration: Double, distance: Double, dragCoefficient: Double, dragExponent: Double, stopSpeed: Double) -> (transitionTime: Double, transitionDistance: Double, dragCurve: DragCurve?) {

@@ -130,9 +130,14 @@ enum Math {
         return r
     }
 
+    /// Iterative rather than recursive: it is called in a double loop while building a Bezier's
+    /// polynomial coefficients, and the recursion bought nothing but stack frames.
     static func factorial(_ n: Int) -> Int {
         assert(n >= 0)
-        return n == 0 ? 1 : n * factorial(n - 1)
+        var result = 1
+        if n < 2 { return result }
+        for i in 2...n { result *= i }
+        return result
     }
 
     static func scale(_ value: Double, _ from: (Double, Double), _ to: (Double, Double), checkBounds: Bool = true) -> Double {

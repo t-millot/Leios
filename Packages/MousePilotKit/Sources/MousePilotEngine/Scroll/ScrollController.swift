@@ -114,13 +114,15 @@ final class ScrollController {
         let tabletID = event.getIntegerValueField(.tabletEventDeviceID)
         let isDiagonal = deltaAxis1 != 0 && deltaAxis2 != 0
 
+        // Every cheap rejection first, so the Wacom check below — the only one that can reach a
+        // syscall — is asked about as few events as possible.
         if isContinuous != 0 || scrollPhase != 0 || tabletID != 0 || isDiagonal {
             return Unmanaged.passUnretained(event)
         }
-        if EventUtility.isWacomEvent(event) {
+        if deltaAxis1 == 0 && deltaAxis2 == 0 {
             return Unmanaged.passUnretained(event)
         }
-        if deltaAxis1 == 0 && deltaAxis2 == 0 {
+        if appUnderPointer.isWacomEvent(event) {
             return Unmanaged.passUnretained(event)
         }
 
@@ -218,7 +220,9 @@ final class ScrollController {
             animator.start(params: { [self] valueLeftVec, isRunning, _, currentSpeed in
                 assert(valueLeftVec.x == 0 || valueLeftVec.y == 0)
                 if mouseDidMove && !isRunning {
-                    animator.link(to: EventUtility.displayUnderPointer(event: nil))
+                    // `previousMouseLocation` was just refreshed from this very event, so use it
+                    // rather than synthesizing a CGEvent to ask where the pointer is.
+                    animator.link(to: EventUtility.display(at: previousMouseLocation) ?? CGMainDisplayID())
                 }
 
                 var pxLeftToScroll = 0.0
@@ -269,7 +273,12 @@ final class ScrollController {
                         // Speed-smoothing curve: start at the current animation speed.
                         let speedSmoothing = pCurve.speedSmoothing
                         assert(0 <= speedSmoothing && speedSmoothing <= 1)
-                        let startDirection = Vector(x: 1 / (baseDuration / 1000.0), y: magnitude(currentSpeed) / delta)
+                        // Slope of the curve at its start, in unit distance per unit time: y is px/s
+                        // over px and x is 1 over the duration, both in seconds. Mac Mouse Fix divides
+                        // the duration by 1000 here, which reads it as milliseconds although it is
+                        // already in seconds and skews the slope by 1000×. Dormant either way while
+                        // every shipped curve sets `speedSmoothing` to 0, which collapses this to a line.
+                        let startDirection = Vector(x: 1 / baseDuration, y: magnitude(currentSpeed) / delta)
                         let p1 = vectorFromDeltaAndDirectionVector(speedSmoothing, startDirection)
                         baseCurve = Bezier(points: [(0, 0), (p1.x, p1.y), (1, 1)], defaultEpsilon: 0.01)
                     }

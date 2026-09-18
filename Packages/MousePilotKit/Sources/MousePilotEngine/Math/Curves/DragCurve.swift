@@ -12,6 +12,21 @@ final class DragCurve: Curve {
     private var k: Double = 0
     private var isNegative = false
 
+    // Terms of the solved equations that depend only on `a` and `b`. `evaluate` runs once per frame
+    // for the whole length of a momentum scroll, and every one of these was being recomputed there.
+    private var oneMinusB: Double = 0
+    private var aTimesBMinusOne: Double = 0
+    private var aTimesBMinusTwo: Double = 0
+    private var distanceExponent: Double = 0
+
+    /// Must run after `a` and `b` are set and before any of the solvers are called.
+    private func cacheCoefficients() {
+        oneMinusB = 1 - b
+        aTimesBMinusOne = a * (b - 1)
+        aTimesBMinusTwo = a * (b - 2)
+        distanceExponent = 1 / oneMinusB + 1
+    }
+
     private(set) var timeInterval: Interval = .unitInterval
     private var _distanceInterval: Interval = .unitInterval
     var distanceInterval: Interval {
@@ -29,6 +44,7 @@ final class DragCurve: Curve {
 
         a = coefficient
         b = exponent
+        cacheCoefficients()
 
         let t_s0 = solveT(v: vs, c: 0)
         k = solveK(d: d, t: t_s0, c: 0)
@@ -63,6 +79,7 @@ final class DragCurve: Curve {
 
         a = coefficient
         b = exponent
+        cacheCoefficients()
 
         c = solveC(v: v0, t: 0)
         k = solveK(d: 0, t: 0, c: c)
@@ -78,36 +95,36 @@ final class DragCurve: Curve {
     // MARK: v(t)
 
     private func solveV(t: Double, c: Double) -> Double {
-        if b == 1 { return pow(M_E, -a * (t - c)) }
-        return pow((b - 1) * (a * (t - c)), 1 / (1 - b))
+        if b == 1 { return exp(-a * (t - c)) }
+        return pow(aTimesBMinusOne * (t - c), 1 / oneMinusB)
     }
 
     private func solveT(v: Double, c: Double) -> Double {
         if b == 1 { return (a * c - log(v)) / a }
-        return pow(v, 1 - b) / ((b - 1) * a) + c
+        return pow(v, oneMinusB) / aTimesBMinusOne + c
     }
 
     private func solveC(v: Double, t: Double) -> Double {
         if b == 1 { return (a * t + log(v)) / a }
-        return t - (pow(v, 1 - b) / ((b - 1) * a))
+        return t - (pow(v, oneMinusB) / aTimesBMinusOne)
     }
 
     // MARK: d(t)
 
     private func solveD(t: Double, c: Double, k: Double) -> Double {
-        if b == 1 { return -pow(M_E, a * (c - t)) / a + k }
+        if b == 1 { return -exp(a * (c - t)) / a + k }
         if b == 2 { return log(t - c) / a + k }
-        return pow(a * (b - 1) * (t - c), 1 / (1 - b) + 1) / (a * (b - 2)) + k
+        return pow(aTimesBMinusOne * (t - c), distanceExponent) / aTimesBMinusTwo + k
     }
 
     private func solveT(d: Double, c: Double, k: Double) -> Double {
         if b == 1 { return c - log(a * k) / a }
-        if b == 2 { return pow(M_E, -a * k) + c }
-        return (pow(a * (2 - b) * k, -1 / (b - 2))
-                * (-a * c * pow(a * (2 - b) * k, 1 / (b - 2))
-                   + a * b * c * pow(a * (2 - b) * k, 1 / (b - 2))
-                   + pow(a * (2 - b) * k, b / (b - 2))))
-            / (a * (b - 1))
+        if b == 2 { return exp(-a * k) + c }
+        // One `pow` base, three exponents: the original spelled the same base out four times.
+        let base = a * (2 - b) * k
+        let inner = pow(base, 1 / (b - 2))
+        return (pow(base, -1 / (b - 2)) * (-a * c * inner + a * b * c * inner + pow(base, b / (b - 2))))
+            / aTimesBMinusOne
     }
 
     private func solveC(d: Double, t: Double, k: Double) -> Double {
