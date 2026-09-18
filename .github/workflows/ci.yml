@@ -13,7 +13,7 @@ concurrency:
 jobs:
   test:
     name: Tests
-    # MousePilot deploys to macOS 27, so the tests need a macOS 27 host to launch on.
+    # Leios deploys to macOS 27, so the tests need a macOS 27 host to launch on.
     # `xcode-27` is GitHub's macOS 27 preview image; it can queue longer than the GA images.
     runs-on: xcode-27
     timeout-minutes: 30
@@ -27,7 +27,7 @@ jobs:
           xcodebuild -version
 
       # The workspace, not the project: Xcode leaves a local package's test targets out of a plain
-      # project scheme, so `-project` would silently run only MousePilotTests.
+      # project scheme, so `-project` would silently run only LeiosTests.
       # Signing is ad-hoc — CI has no Developer ID, and nothing under test needs a real identity
       # (the helper's XPC team check only bites in Release builds, which this isn't).
       - name: Run tests
@@ -39,8 +39,8 @@ jobs:
             formatter=(cat)
           fi
           xcodebuild test \
-            -workspace MousePilot.xcworkspace \
-            -scheme MousePilot \
+            -workspace Leios.xcworkspace \
+            -scheme Leios \
             -configuration Debug \
             -destination 'platform=macOS' \
             -derivedDataPath DerivedData \
@@ -76,7 +76,7 @@ jobs:
           swiftlint version
 
       # --strict: the tree is clean, so every warning is something this change introduced.
-      # Rules the Mac Mouse Fix port does not fit are relaxed in Packages/MousePilotKit/.swiftlint.yml.
+      # Rules the Mac Mouse Fix port does not fit are relaxed in Packages/LeiosKit/.swiftlint.yml.
       - name: Lint
         run: swiftlint lint --strict --reporter github-actions-logging
 
@@ -95,12 +95,12 @@ jobs:
 
       # --lint reports what formatting would change without writing anything. The tree is clean,
       # so any report is from the change under test. Rules the port does not fit are relaxed in
-      # .swiftformat and Packages/MousePilotKit/.swiftformat.
+      # .swiftformat and Packages/LeiosKit/.swiftformat.
       - name: Check formatting
         run: |
           swiftformat \
-            MousePilot MousePilotHelper MousePilotTests \
-            Packages/MousePilotKit/Sources Packages/MousePilotKit/Tests \
+            Leios LeiosHelper LeiosTests \
+            Packages/LeiosKit/Sources Packages/LeiosKit/Tests \
             --lint --reporter github-actions-log
 
   build-release:
@@ -123,8 +123,8 @@ jobs:
             formatter=(cat)
           fi
           xcodebuild build \
-            -project MousePilot.xcodeproj \
-            -scheme MousePilot \
+            -project Leios.xcodeproj \
+            -scheme Leios \
             -configuration Release \
             -destination 'platform=macOS' \
             -derivedDataPath DerivedData \
@@ -137,7 +137,7 @@ jobs:
       # AppBundleLayoutTests checks them for Debug only.
       - name: Check the Release bundle is laid out correctly
         run: |
-          app=DerivedData/Build/Products/Release/MousePilot.app
-          test -d "$app/Contents/Library/LoginItems/MousePilotHelper.app"
-          test -f "$app/Contents/Library/LaunchAgents/com.tmillot.MousePilot.Helper.plist"
+          app=DerivedData/Build/Products/Release/Leios.app
+          test -d "$app/Contents/Library/LoginItems/LeiosHelper.app"
+          test -f "$app/Contents/Library/LaunchAgents/com.tmillot.Leios.Helper.plist"
           codesign --verify --deep --strict "$app"

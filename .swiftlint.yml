@@ -1,4 +1,4 @@
-# SwiftLint configuration for MousePilot.
+# SwiftLint configuration for Leios.
 #
 # The engine is a port of Mac Mouse Fix and keeps that code's shape on purpose: verbatim math,
 # MMF's own identifiers, and long state machines (see CLAUDE.md). Rules that fight the port are
@@ -6,11 +6,11 @@
 # so CI can run --strict and any new violation is a real one.
 
 included:
-  - MousePilot
-  - MousePilotHelper
-  - MousePilotTests
-  - Packages/MousePilotKit/Sources
-  - Packages/MousePilotKit/Tests
+  - Leios
+  - LeiosHelper
+  - LeiosTests
+  - Packages/LeiosKit/Sources
+  - Packages/LeiosKit/Tests
 
 disabled_rules:
   # `x = x - a` mirrors the formula it was ported from; shorthand would obscure the source.
@@ -23,7 +23,7 @@ disabled_rules:
   - trailing_comma
 
 # App and helper code wraps at a normal width; the one long line is a user-facing string, which
-# reads worse broken up. The ported engine relaxes this further in Packages/MousePilotKit.
+# reads worse broken up. The ported engine relaxes this further in Packages/LeiosKit.
 line_length:
   warning: 200
   error: 300

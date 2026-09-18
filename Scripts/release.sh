@@ -1,12 +1,12 @@
 #!/bin/bash
 #
-# Build, notarize and package a distributable MousePilot.dmg.
+# Build, notarize and package a distributable Leios.dmg.
 #
 # Prerequisites (one-time):
 #   1. A "Developer ID Application" certificate in the login keychain.
 #      Xcode > Settings > Accounts > <team> > Manage Certificates > + > Developer ID Application
 #   2. Notarization credentials stored under a keychain profile:
-#      xcrun notarytool store-credentials mousepilot-notary \
+#      xcrun notarytool store-credentials leios-notary \
 #          --apple-id <apple-id> --team-id WE9Q98XU4V
 #      (asks for an app-specific password from appleid.apple.com)
 #
@@ -22,8 +22,8 @@
 set -euo pipefail
 
 TEAM_ID="WE9Q98XU4V"
-NOTARY_PROFILE="${NOTARY_PROFILE:-mousepilot-notary}"
-SCHEME="MousePilot"
+NOTARY_PROFILE="${NOTARY_PROFILE:-leios-notary}"
+SCHEME="Leios"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "$WORK_DIR"' EXIT
@@ -60,7 +60,7 @@ xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1 \
 
 # Resolve the version up front so a bad tag or an unpushed commit fails now
 # rather than after ten minutes of archiving and notarizing.
-SETTINGS="$(xcodebuild -project "$REPO_ROOT/MousePilot.xcodeproj" -target "$SCHEME" \
+SETTINGS="$(xcodebuild -project "$REPO_ROOT/Leios.xcodeproj" -target "$SCHEME" \
     -configuration Release -showBuildSettings 2>/dev/null)"
 VERSION="$(sed -n 's/^ *MARKETING_VERSION = //p' <<<"$SETTINGS" | head -1)"
 [ -n "$VERSION" ] || die "could not read MARKETING_VERSION from the project"
@@ -70,7 +70,7 @@ VERSION="$(sed -n 's/^ *MARKETING_VERSION = //p' <<<"$SETTINGS" | head -1)"
 VERSION_TAG="v$(awk '{ t=$1; for (i=2;i<=NF;i++) t = t (i==2 ? "-" : ".") tolower($i); print t }' <<<"$VERSION")"
 # The volume name keeps the spaces; the file name does not.
 VERSION_SLUG="${VERSION// /-}"
-DMG="$OUT_DIR/MousePilot-$VERSION_SLUG.dmg"
+DMG="$OUT_DIR/Leios-$VERSION_SLUG.dmg"
 
 echo "Version:  $VERSION"
 echo "Tag:      $VERSION_TAG"
@@ -101,10 +101,10 @@ fi
 
 step "Archiving Release"
 xcodebuild archive \
-    -project "$REPO_ROOT/MousePilot.xcodeproj" \
+    -project "$REPO_ROOT/Leios.xcodeproj" \
     -scheme "$SCHEME" \
     -configuration Release \
-    -archivePath "$WORK_DIR/MousePilot.xcarchive" \
+    -archivePath "$WORK_DIR/Leios.xcarchive" \
     -destination 'generic/platform=macOS' \
     CODE_SIGN_STYLE=Automatic \
     DEVELOPMENT_TEAM="$TEAM_ID" \
@@ -130,13 +130,13 @@ cat > "$WORK_DIR/ExportOptions.plist" <<PLIST
 PLIST
 
 xcodebuild -exportArchive \
-    -archivePath "$WORK_DIR/MousePilot.xcarchive" \
+    -archivePath "$WORK_DIR/Leios.xcarchive" \
     -exportOptionsPlist "$WORK_DIR/ExportOptions.plist" \
     -exportPath "$WORK_DIR/export" \
     >"$WORK_DIR/export.log" 2>&1 \
     || { tail -40 "$WORK_DIR/export.log"; die "export failed (full log: $WORK_DIR/export.log)"; }
 
-APP="$WORK_DIR/export/MousePilot.app"
+APP="$WORK_DIR/export/Leios.app"
 [ -d "$APP" ] || die "expected $APP after export"
 
 BUILT_VERSION="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$APP/Contents/Info.plist")"
@@ -145,7 +145,7 @@ BUILT_VERSION="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "
 
 # The helper is loaded by launchd, not double-clicked, so verify it carries the
 # Developer ID and hardened runtime too -- Gatekeeper evaluates it separately.
-HELPER="$APP/Contents/Library/LoginItems/MousePilotHelper.app"
+HELPER="$APP/Contents/Library/LoginItems/LeiosHelper.app"
 [ -d "$HELPER" ] || die "helper missing from $APP -- check the Embed Helper build phase"
 for bundle in "$APP" "$HELPER"; do
     SIGNATURE="$(codesign -dv --verbose=4 "$bundle" 2>&1)"
@@ -158,9 +158,9 @@ codesign --verify --deep --strict "$APP" || die "signature verification failed"
 
 # --- notarize the app ------------------------------------------------------
 
-step "Notarizing MousePilot.app ($VERSION)"
-ditto -c -k --keepParent "$APP" "$WORK_DIR/MousePilot.zip"
-xcrun notarytool submit "$WORK_DIR/MousePilot.zip" \
+step "Notarizing Leios.app ($VERSION)"
+ditto -c -k --keepParent "$APP" "$WORK_DIR/Leios.zip"
+xcrun notarytool submit "$WORK_DIR/Leios.zip" \
     --keychain-profile "$NOTARY_PROFILE" --wait \
     || die "notarization failed -- 'xcrun notarytool log <id> --keychain-profile $NOTARY_PROFILE' has the details"
 
@@ -174,7 +174,7 @@ mkdir -p "$OUT_DIR" "$WORK_DIR/dmgroot"
 cp -R "$APP" "$WORK_DIR/dmgroot/"
 ln -s /Applications "$WORK_DIR/dmgroot/Applications"
 rm -f "$DMG"
-hdiutil create -volname "MousePilot $VERSION" -srcfolder "$WORK_DIR/dmgroot" \
+hdiutil create -volname "Leios $VERSION" -srcfolder "$WORK_DIR/dmgroot" \
     -ov -format UDZO "$DMG" >/dev/null
 
 codesign --sign "Developer ID Application" --timestamp "$DMG"
@@ -189,7 +189,7 @@ xcrun stapler staple "$DMG"
 step "Verifying"
 xcrun stapler validate "$DMG"
 spctl -a -vvv -t open --context context:primary-signature "$DMG"
-spctl -a -vvv -t exec "$WORK_DIR/dmgroot/MousePilot.app"
+spctl -a -vvv -t exec "$WORK_DIR/dmgroot/Leios.app"
 
 # --- publish ---------------------------------------------------------------
 
