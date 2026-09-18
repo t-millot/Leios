@@ -21,5 +21,15 @@
         <description>Updates for Leios.</description>
         <language>en</language>
         <!-- NEW ITEMS GO BELOW THIS LINE -->
+        <item>
+            <title>1.0 beta 6</title>
+            <pubDate>Fri, 18 Sep 2026 21:03:32 +0000</pubDate>
+            <sparkle:version>6</sparkle:version>
+            <sparkle:shortVersionString>1.0 beta 6</sparkle:shortVersionString>
+            <sparkle:channel>beta</sparkle:channel>
+            <sparkle:minimumSystemVersion>27.0</sparkle:minimumSystemVersion>
+            <sparkle:releaseNotesLink>https://github.com/t-millot/Leios/releases/tag/v1.0-beta.6</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/t-millot/Leios/releases/download/v1.0-beta.6/Leios-1.0-beta-6.zip" type="application/octet-stream" sparkle:edSignature="GKLfGdvOI3k4c4YJM5pMCxDydAEjCCu34LQFxR/kQLMxVN1wXTHJly9qFvDYzuTrOP+ZhB26nqCFfXUm5fzjAw==" length="3276540" />
+        </item>
     </channel>
 </rss>
