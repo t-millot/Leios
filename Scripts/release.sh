@@ -105,12 +105,17 @@ fi
 # --- archive ---------------------------------------------------------------
 
 step "Archiving Release"
+# -allowProvisioningUpdates: iCloud is a restricted entitlement, so the app needs a Developer ID
+# provisioning profile that authorises it. Without the flag xcodebuild refuses to create or renew
+# one and the export fails with "No profiles for 'com.tmillot.Leios' were found". Profiles expire
+# after a year, so this also keeps a release twelve months from now from failing the same way.
 xcodebuild archive \
     -project "$REPO_ROOT/Leios.xcodeproj" \
     -scheme "$SCHEME" \
     -configuration Release \
     -archivePath "$WORK_DIR/Leios.xcarchive" \
     -destination 'generic/platform=macOS' \
+    -allowProvisioningUpdates \
     CODE_SIGN_STYLE=Automatic \
     DEVELOPMENT_TEAM="$TEAM_ID" \
     >"$WORK_DIR/archive.log" 2>&1 \
@@ -138,6 +143,7 @@ xcodebuild -exportArchive \
     -archivePath "$WORK_DIR/Leios.xcarchive" \
     -exportOptionsPlist "$WORK_DIR/ExportOptions.plist" \
     -exportPath "$WORK_DIR/export" \
+    -allowProvisioningUpdates \
     >"$WORK_DIR/export.log" 2>&1 \
     || { tail -40 "$WORK_DIR/export.log"; die "export failed (full log: $WORK_DIR/export.log)"; }
 
