@@ -43,8 +43,9 @@ launchctl list | grep com.tmillot.MousePilot.Helper
 ```
 
 A `launchctl list` line with a PID and status `-15` means the agent is loaded
-and running. The app's own status label should read `Running.` with a green
-dot. The other labels come from `HelperStatus.description` in
+and running. The toolbar's status dot should be green, with `Running.` as its
+tooltip and accessibility value. The other labels come from
+`HelperStatus.description` in
 [AppModel.swift](../../../MousePilot/AppModel.swift): `Running, but Accessibility
 permission is missing.` (grant it in System Settings → Privacy & Security →
 Accessibility), `Waiting for approval in System Settings → General → Login
@@ -61,9 +62,9 @@ this keeps the same bundle path, so the Accessibility grant survives:
 launchctl kickstart -k "gui/$(id -u)/com.tmillot.MousePilot.Helper"
 ```
 
-The PID in `launchctl list` should change. Prefer this over toggling **Enable
-MousePilot** off/on, and never re-register from a different build location
-unless you intend to re-grant Accessibility (`tccutil reset Accessibility
+The PID in `launchctl list` should change. Prefer this over toggling **Enable**
+off/on, and never re-register from a different build location unless you intend
+to re-grant Accessibility (`tccutil reset Accessibility
 com.tmillot.MousePilot.Helper`).
 
 ## Drive the window
@@ -80,15 +81,16 @@ osascript -e 'tell application "System Events" to tell process "MousePilot" to g
 Stable paths as of this writing:
 
 - Tabs (Scrolling / Buttons / General): `radio button N of tab group 1 of group 1 of toolbar 1 of window 1`
-- Enable switch: `checkbox "Enable MousePilot" of group 1 of window 1`
-- Status label: `static text 2 of group 1 of window 1`
+- Enable switch: `checkbox 1 of group 2 of toolbar 1 of window 1`
+- Status: the toolbar dot, `image 1 of group 2 of toolbar 1 of window 1` — the
+  state string is its accessibility *value*, not a visible label
 - Action pickers: `pop up button "Click and Drag" of group N of scroll area 1 of group 1 of group 1 of window 1`
 
 Switch tabs and read the status:
 
 ```bash
 osascript -e 'tell application "System Events" to tell process "MousePilot" to click radio button 1 of tab group 1 of group 1 of toolbar 1 of window 1'
-osascript -e 'tell application "System Events" to tell process "MousePilot" to get value of static text 2 of group 1 of window 1'
+osascript -e 'tell application "System Events" to tell process "MousePilot" to get value of image 1 of group 2 of toolbar 1 of window 1'
 ```
 
 Screenshot just the window (query its frame first, pad by ~10 pt):

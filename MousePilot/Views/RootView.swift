@@ -6,46 +6,71 @@ import MousePilotShared
 
 struct RootView: View {
     @Environment(AppModel.self) private var model
+    @Namespace private var enableLabel
 
     var body: some View {
         @Bindable var model = model
-        VStack(spacing: 0) {
-            header
-            Divider()
+        return VStack(spacing: 0) {
+            if hasStatusContent {
+                statusBanner
+                Divider()
+            }
             TabView {
                 ScrollingSettingsView().tabItem { Label("Scrolling", systemImage: "arrow.up.and.down") }
                 AppsSettingsView().tabItem { Label("Apps", systemImage: "square.grid.2x2") }
                 ButtonsSettingsView().tabItem { Label("Buttons", systemImage: "computermouse") }
                 GeneralSettingsView().tabItem { Label("General", systemImage: "gearshape") }
             }
-            .padding()
+            // No top padding: the tab picker sits in the toolbar, so a top inset here reads as a
+            // gap between the title bar and the content.
+            .padding([.horizontal, .bottom])
+        }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                // The label goes in its own Text: a toolbar item strips a Toggle's own label.
+                HStack(spacing: 6) {
+                    Text("Enable")
+                        .accessibilityLabeledPair(role: .label, id: "enable", in: enableLabel)
+                    Toggle("Enable", isOn: $model.isEnabled)
+                        .toggleStyle(.switch)
+                        .labelsHidden()
+                        // A regular switch fills the toolbar item's glass pill edge to edge.
+                        .controlSize(.mini)
+                        .accessibilityLabeledPair(role: .content, id: "enable", in: enableLabel)
+                    statusDot
+                }
+                // Without this the label truncates to "E…".
+                .fixedSize()
+                .padding(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 10))
+            }
         }
     }
 
-    private var header: some View {
-        @Bindable var model = model
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Toggle(isOn: $model.isEnabled) {
-                    Text("Enable MousePilot").font(.title3.weight(.semibold))
-                }
-                .toggleStyle(.switch)
-                Spacer()
-                statusDot
-            }
-            Text(model.helperState.description)
-                .font(.callout)
-                .foregroundStyle(.secondary)
+    /// The header only exists for things that need the user's attention; when the helper is
+    /// simply running, its state lives in the toolbar dot's tooltip and the window stays clean.
+    private var hasStatusContent: Bool {
+        if model.lastError != nil { return true }
+        if model.helperState == .requiresApproval { return true }
+        if case .running(let ax) = model.helperState, !ax { return true }
+        return false
+    }
+
+    private var statusBanner: some View {
+        VStack(alignment: .leading, spacing: 8) {
             if let error = model.lastError {
                 Text(error).font(.callout).foregroundStyle(.red)
             }
             if model.helperState == .requiresApproval {
+                Text(model.helperState.description)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
                 Button("Open Login Items Settings…") { model.openLoginItemsSettings() }
             }
             if case .running(let ax) = model.helperState, !ax {
                 AccessibilityBanner()
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
     }
 
@@ -56,6 +81,15 @@ struct RootView: View {
         case .disabled, .notFound: color = .gray
         case .requiresApproval, .enabledNotRunning: color = .orange
         }
-        return Circle().fill(color).frame(width: 10, height: 10)
+        // An Image rather than a Circle: a bare shape is decorative, so VoiceOver drops the label.
+        // The padding is there because a 10pt dot is too small to hover for the tooltip.
+        return Image(systemName: "circle.fill")
+            .font(.system(size: 10))
+            .foregroundStyle(color)
+            .padding(4)
+            .contentShape(Rectangle())
+            .accessibilityLabel("Status")
+            .accessibilityValue(model.helperState.description)
+            .help(model.helperState.description)
     }
 }

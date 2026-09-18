@@ -17,7 +17,7 @@ Requires macOS 27 or later on Apple silicon.
 
 1. Download `MousePilot-<version>.dmg` from
    [Releases](https://github.com/t-millot/MousePilot/releases) and drag **MousePilot** to Applications.
-2. Open it and turn on **Enable MousePilot**.
+2. Open it and turn on **Enable**.
 3. Grant Accessibility to **MousePilotHelper** in System Settings → Privacy & Security → Accessibility.
    The engine starts as soon as permission is granted.
 
@@ -44,7 +44,7 @@ App Sandbox forbids.
    (Signing & Capabilities). A stable signing identity keeps the Accessibility permission across rebuilds.
 2. Build and run the `MousePilot` scheme. The helper is built automatically and embedded at
    `MousePilot.app/Contents/Library/LoginItems/MousePilotHelper.app`.
-3. Turn on **Enable MousePilot**, then grant Accessibility to `MousePilotHelper` in
+3. Turn on **Enable**, then grant Accessibility to `MousePilotHelper` in
    System Settings → Privacy & Security → Accessibility. The engine starts as soon as permission is granted.
 
 Command line:
