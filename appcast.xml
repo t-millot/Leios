@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The Leios appcast: the update feed Sparkle reads.
+
+    Items are inserted directly under the marker below when Scripts/release.sh publishes a
+    release, newest first, each signed with the EdDSA key whose public half is in the app's
+    Info.plist. They are not meant to be written by hand, and removing the marker breaks
+    publishing.
+
+    An item with no sparkle:channel reaches everyone. Prereleases carry a sparkle:channel of
+    "beta", which reaches only those who turned on "Include pre-release versions" in Leios's
+    General tab.
+
+    This file is served from the gh-pages branch as appcast.xml. The copy under SupportFiles is
+    the starting point it was created from; the two are identical on purpose.
+-->
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+    <channel>
+        <title>Leios</title>
+        <link>https://t-millot.github.io/Leios/appcast.xml</link>
+        <description>Updates for Leios.</description>
+        <language>en</language>
+        <!-- NEW ITEMS GO BELOW THIS LINE -->
+    </channel>
+</rss>
