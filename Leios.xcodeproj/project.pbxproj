@@ -431,7 +431,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = SupportFiles/Leios.entitlements;
+				CODE_SIGN_ENTITLEMENTS = "$(LEIOS_ENTITLEMENTS)";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 4;
@@ -443,6 +443,7 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
+				LEIOS_ENTITLEMENTS = SupportFiles/Leios.entitlements;
 				MARKETING_VERSION = "1.0 beta 4";
 				PRODUCT_BUNDLE_IDENTIFIER = com.tmillot.Leios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -462,7 +463,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = SupportFiles/Leios.entitlements;
+				CODE_SIGN_ENTITLEMENTS = "$(LEIOS_ENTITLEMENTS)";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 4;
@@ -474,6 +475,7 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
+				LEIOS_ENTITLEMENTS = SupportFiles/Leios-Release.entitlements;
 				MARKETING_VERSION = "1.0 beta 4";
 				PRODUCT_BUNDLE_IDENTIFIER = com.tmillot.Leios;
 				PRODUCT_NAME = "$(TARGET_NAME)";

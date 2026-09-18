@@ -17,7 +17,14 @@ final class HelperAppDelegate: NSObject, NSApplicationDelegate {
     private var signals: TerminationSignals!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let initialConfig = (try? ConfigFile.load()) ?? LeiosConfig()
+        var loadFailed = false
+        var initialConfig = LeiosConfig()
+        do {
+            initialConfig = try ConfigFile.load()
+        } catch {
+            loadFailed = true
+            NSLog("Leios Helper: config load failed, running on defaults: \(error)")
+        }
         engine = Engine(config: initialConfig)
 
         signals = TerminationSignals { [weak self] in
@@ -25,7 +32,7 @@ final class HelperAppDelegate: NSObject, NSApplicationDelegate {
         }
         signals.install()
 
-        configStore = ConfigStore(initial: initialConfig)
+        configStore = ConfigStore(initial: initialConfig, loadFailed: loadFailed)
         configStore.onChange = { [weak self] config in
             guard let self else { return }
             self.engine.apply(config)

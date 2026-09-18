@@ -9,6 +9,11 @@
 #      xcrun notarytool store-credentials leios-notary \
 #          --apple-id <apple-id> --team-id WE9Q98XU4V
 #      (asks for an app-specific password from appleid.apple.com)
+#   3. The CloudKit schema promoted to Production, once per schema change:
+#      CloudKit Console > Leios > Development > Deploy Schema Changes.
+#      A Developer ID build talks to Production (see SupportFiles/Leios-Release.entitlements);
+#      without the promotion every user's first sync fails with an unknown record type. There is
+#      no way to check this from here, so it stays a checklist item.
 #
 # Usage: Scripts/release.sh [--publish] [output-dir]      # output default: build/
 #
@@ -155,6 +160,13 @@ for bundle in "$APP" "$HELPER"; do
         || die "$(basename "$bundle") is missing the hardened runtime"
 done
 codesign --verify --deep --strict "$APP" || die "signature verification failed"
+
+# iCloud is a restricted entitlement, so the app carries a provisioning profile that authorises
+# it. Both are easy to lose to a signing mishap and neither shows up until a user's first sync.
+[ -f "$APP/Contents/embedded.provisionprofile" ] \
+    || die "Leios.app has no embedded provisioning profile -- iCloud sync would not work"
+codesign -d --entitlements :- "$APP" 2>/dev/null | grep -q "iCloud.com.tmillot.Leios" \
+    || die "Leios.app is missing the iCloud container entitlement"
 
 # --- notarize the app ------------------------------------------------------
 

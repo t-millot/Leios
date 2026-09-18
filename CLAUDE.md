@@ -21,6 +21,22 @@ cd Packages/LeiosKit && swift test --filter ClickCycleTests/testDoubleClick
 xcodebuild test -workspace Leios.xcworkspace -scheme Leios -destination 'platform=macOS' -only-testing:LeiosEngineTests/RemapTableTests
 ```
 
+The app target carries a restricted iCloud entitlement, so any build of it needs a provisioning
+profile for the `iCloud.com.tmillot.Leios` container. `CODE_SIGN_ENTITLEMENTS` is indirected
+through `LEIOS_ENTITLEMENTS` (Debug uses [SupportFiles/Leios.entitlements](SupportFiles/Leios.entitlements),
+Release [SupportFiles/Leios-Release.entitlements](SupportFiles/Leios-Release.entitlements), which
+is the same set plus `icloud-container-environment = Production`). Without the container
+provisioned — or when signing ad-hoc, as CI does — override it:
+
+```bash
+xcodebuild -project Leios.xcodeproj -scheme Leios -configuration Debug build \
+    LEIOS_ENTITLEMENTS=SupportFiles/Leios-CI.entitlements
+```
+
+That file is the old entitlements, sandbox off and nothing else. The indirection is on the Leios
+target only, so the override cannot leak onto the helper, which deliberately has no iCloud
+entitlement and therefore never needs re-provisioning.
+
 There are three test targets: `LeiosTests` (in the Xcode project, app-hosted) and `LeiosEngineTests` / `LeiosSharedTests` (in the package). **Run them through `Leios.xcworkspace`, not the `.xcodeproj`** — Xcode drops a local package's test targets from a plain project's schemes, so `xcodebuild test -project …` silently runs only `LeiosTests`. The workspace exists solely to make the package tests reachable from the scheme; opening and building `Leios.xcodeproj` directly still works as before.
 
 Tests are XCTest, and the engine ones are not pure unit tests: they start a real `EngineThread`, real run-loop timers and (in `FrameClockTests`) a real `CADisplayLink`, so they need a windowserver session and take wall-clock time. `LeiosTests` is hosted by the app, so running it launches `Leios.app` — harmless, since `AppModel` only reads config and polls unless it gets `--enable-helper`. Nothing in any suite creates an event tap, so no Accessibility permission is needed.
@@ -45,7 +61,25 @@ tccutil reset Accessibility com.tmillot.Leios.Helper
 
 **`SwitchMaster` is the only place that decides which taps run.** Unused input paths cost nothing: taps are created disabled in `EngineSubsystems.start()` and `SwitchMaster.reevaluate()` turns each one on or off from the current config, modifier state and capture state. Anything that changes those must end in a `reevaluate()` — never call `setReceiving` on a subsystem from elsewhere.
 
-**Config flows one way: app → `config.json` → helper.** The app debounces writes (100 ms) to `~/Library/Application Support/Leios/config.json`; the helper's `ConfigStore` watches the *directory* with a `DispatchSourceFileSystemObject` (150 ms debounce) and the app also pokes `reloadConfig` over XPC, so both paths must stay idempotent. From there: `Engine.apply` → `EngineSubsystems.configChanged` → subsystem updates → `reevaluate()`. Adding a setting therefore means: field on `LeiosConfig` (+ `decodeIfPresent` default in the hand-written `init(from:)` — the codable conformances exist precisely so an older or newer file never fails to load), a control in `Leios/Views/`, and consumption in `configChanged`. A *scroll* setting also needs an
+**iCloud sync is app-only, and it feeds the config rather than bypassing it.** `CloudSync`
+([Leios/CloudSync.swift](Leios/CloudSync.swift)) is pure transport — fetch and upload one CloudKit
+record — and `AppModel` owns every decision, so a remote payload arrives as an ordinary assignment
+to `AppModel.config` and flows to the helper down the usual path. Three things hold it together.
+`SyncedConfig` ([Packages/LeiosKit/Sources/LeiosShared/SyncedConfig.swift](Packages/LeiosKit/Sources/LeiosShared/SyncedConfig.swift))
+is a projection that structurally cannot touch the kill switches or the menu bar item, which stay
+machine-local; a `nil` section in it means "keep mine", which is what stops a payload with no
+`buttons` key from resetting mappings the way `LeiosConfig`'s own decoder would. `SyncReconciler`
+holds the whole last-writer-wins rule as a pure function, which is where its tests live.
+And `lastAgreed` is set *before* the assignment in `applyRemote`, which is the entire loop
+suppression: the debounced save that follows finds the projection unchanged and uploads nothing.
+There is no push — `aps-environment` is restricted and silent push only arrives while the app runs
+— so a remote change lands when the window is next activated. `CKContainer(identifier:)` *traps*
+rather than throwing without the entitlement, so `CloudSync.init` is failable and checks
+`SecTaskCopyValueForEntitlement` first.
+
+**Config flows one way: app → `config.json` → helper.** The app debounces writes (100 ms) to `~/Library/Application Support/Leios/config.json`; the helper's `ConfigStore` watches the *directory* with a `DispatchSourceFileSystemObject` (150 ms debounce) and the app also pokes `reloadConfig` over XPC, so both paths must stay idempotent. From there: `Engine.apply` → `EngineSubsystems.configChanged` → subsystem updates → `reevaluate()`. A config that fails to decode is never written over: `AppModel.configIsReadable` gates every save
+and the helper's `ConfigStore.loadFailed` gates its own, so a file from a newer Leios survives
+until the user presses "Discard and Start Fresh". Adding a setting therefore means: field on `LeiosConfig` (+ `decodeIfPresent` default in the hand-written `init(from:)` — the codable conformances exist precisely so an older or newer file never fails to load), a control in `Leios/Views/`, and consumption in `configChanged`. A *scroll* setting also needs an
 optional twin on `ScrollOverrides` and a row in `ScrollSettingsForm`, which renders both the global
 tab and each app profile from the same code.
 

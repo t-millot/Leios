@@ -50,6 +50,7 @@ struct RootView: View {
     /// The header only exists for things that need the user's attention; when the helper is
     /// simply running, its state lives in the toolbar dot's tooltip and the window stays clean.
     private var hasStatusContent: Bool {
+        if !model.configIsReadable { return true }
         if model.lastError != nil { return true }
         if model.helperState == .requiresApproval { return true }
         if case .running(let ax) = model.helperState, !ax { return true }
@@ -58,6 +59,15 @@ struct RootView: View {
 
     private var statusBanner: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if !model.configIsReadable {
+                Text("Leios could not read its settings file, so it is showing defaults. Nothing has been written over it.")
+                    .font(.callout)
+                    .foregroundStyle(.red)
+                HStack {
+                    Button("Reveal in Finder") { model.revealConfigInFinder() }
+                    Button("Discard and Start Fresh") { model.discardUnreadableConfig() }
+                }
+            }
             if let error = model.lastError {
                 Text(error).font(.callout).foregroundStyle(.red)
             }

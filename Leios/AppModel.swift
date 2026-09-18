@@ -3,6 +3,7 @@
 
 import Foundation
 import AppKit
+import CloudKit
 import Observation
 import LeiosShared
 
@@ -37,6 +38,22 @@ final class AppModel {
     private(set) var helperState: HelperState = .disabled
     private(set) var lastError: String?
 
+    /// False when `config.json` exists but could not be decoded. The config in memory is then
+    /// defaults, which must not be written back over the file the user still has — a config
+    /// written by a newer Leios is exactly the kind of file this build cannot read.
+    private(set) var configIsReadable = true
+
+    /// Machine-local, so it lives in UserDefaults rather than config.json — the helper has no
+    /// business knowing whether this Mac syncs.
+    var syncEnabled: Bool {
+        didSet {
+            guard syncEnabled != oldValue else { return }
+            UserDefaults.standard.set(syncEnabled, forKey: DefaultsKey.syncEnabled)
+            if syncEnabled { startSync() } else { stopSync() }
+        }
+    }
+    private(set) var syncState: SyncState = .off
+
     var isEnabled: Bool {
         get { helperState != .disabled && helperState != .notFound }
         set { newValue ? enableHelper() : disableHelper() }
@@ -47,8 +64,34 @@ final class AppModel {
     private var saveTask: Task<Void, Never>?
     private var pollTask: Task<Void, Never>?
 
+    private var sync: CloudSync?
+    /// The payload this Mac last agreed with the server. Also the upload suppressor: after a
+    /// remote apply it already equals the projection, so the save that follows uploads nothing.
+    private var lastAgreed: SyncedConfig?
+    /// When this Mac first diverged from `lastAgreed`. Persisted, because a Mac edited offline and
+    /// then quit must still know it has unsent work rather than adopting a stale remote over it.
+    private var localDirtySince: Date? {
+        didSet { UserDefaults.standard.set(localDirtySince, forKey: DefaultsKey.localDirtySince) }
+    }
+    private var syncPollTask: Task<Void, Never>?
+
+    private enum DefaultsKey {
+        static let syncEnabled = "sync.enabled"
+        static let localDirtySince = "sync.localDirtySince"
+    }
+
     init() {
-        config = (try? ConfigFile.load()) ?? LeiosConfig()
+        // Off in tests: the app host would otherwise put the developer's own iCloud config in the
+        // loop, and `LeiosTests` runs against the real Application Support directory.
+        let underTest = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+        syncEnabled = !underTest && UserDefaults.standard.bool(forKey: DefaultsKey.syncEnabled)
+        localDirtySince = UserDefaults.standard.object(forKey: DefaultsKey.localDirtySince) as? Date
+        do {
+            config = try ConfigFile.load()
+        } catch {
+            config = LeiosConfig()
+            configIsReadable = false
+        }
         // Command-line switches for scripted testing.
         let args = CommandLine.arguments
         if args.contains("--enable-helper") { enableHelper() }
@@ -58,13 +101,19 @@ final class AppModel {
             Task { @MainActor in
                 self?.reloadConfigFromDisk()
                 await self?.refresh()
+                await self?.syncNow()
             }
         }
+        NotificationCenter.default.addObserver(forName: .CKAccountChanged, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in await self?.syncNow() }
+        }
+        if syncEnabled { startSync() }
     }
 
     // MARK: Config persistence
 
     private func scheduleSave() {
+        guard configIsReadable else { return }
         saveTask?.cancel()
         saveTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(100))
@@ -81,20 +130,157 @@ final class AppModel {
             lastError = "Could not save settings: \(error.localizedDescription)"
         }
         Task { await client.reloadConfig() }
+        syncDidChangeLocally()
     }
 
     /// Picks up changes made by the helper (menu bar kill switches).
     func reloadConfigFromDisk() {
-        if let disk = try? ConfigFile.load(), disk != config {
-            config = disk
+        do {
+            let disk = try ConfigFile.load()
+            configIsReadable = true
+            if disk != config { config = disk }
+        } catch {
+            // Leave `config` alone: what is in memory is still the last thing we could read.
+            configIsReadable = false
         }
+    }
+
+    /// Throws away an unreadable file and starts from the config currently in memory. The only
+    /// way out of `configIsReadable == false`, and deliberately a thing the user asks for.
+    func discardUnreadableConfig() {
+        configIsReadable = true
+        saveNow()
+    }
+
+    func revealConfigInFinder() {
+        NSWorkspace.shared.activateFileViewerSelecting([ConfigFile.url])
+    }
+
+    // MARK: iCloud sync
+
+    private func startSync() {
+        guard let sync = CloudSync() else {
+            syncState = .unavailable
+            return
+        }
+        sync.onUploadResult = { [weak self] payload, outcome in
+            self?.handleUpload(of: payload, outcome)
+        }
+        self.sync = sync
+        syncState = .syncing
+        syncPollTask?.cancel()
+        syncPollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.syncNow()
+                // A window left open overnight still converges. Activation covers the rest;
+                // there is no push, so nothing arrives while the app is closed.
+                try? await Task.sleep(for: .seconds(300))
+            }
+        }
+    }
+
+    private func stopSync() {
+        syncPollTask?.cancel()
+        syncPollTask = nil
+        sync?.cancelPendingUpload()
+        sync = nil
+        lastAgreed = nil
+        syncState = .off
+    }
+
+    /// One reconciliation pass: fetch what iCloud holds and act on the reconciler's verdict.
+    func syncNow() async {
+        guard syncEnabled, let sync, configIsReadable else { return }
+        guard await sync.isSignedIn() else {
+            syncState = .noAccount
+            return
+        }
+        if case .off = syncState { syncState = .syncing }
+
+        let local = SyncedConfig(config)
+        switch await sync.fetch() {
+        case .noAccount:
+            syncState = .noAccount
+        case .failed(let message):
+            syncState = .error(message)
+        case .incompatible(let device):
+            syncState = .incompatible(device: device)
+        case .noRecord:
+            syncState = .syncing
+            handleUpload(of: local, await sync.upload(local))
+        case .record(let remote, let stamp):
+            switch SyncReconciler.decide(local: local,
+                                         remote: remote,
+                                         lastAgreed: lastAgreed,
+                                         localDirtySince: localDirtySince,
+                                         remoteModifiedAt: stamp.modifiedAt) {
+            case .upToDate:
+                lastAgreed = remote
+                localDirtySince = nil
+                syncState = .synced(stamp.modifiedAt, device: nil)
+            case .applyRemote:
+                applyRemote(remote, stamp: stamp)
+            case .upload, .seed:
+                syncState = .syncing
+                handleUpload(of: local, await sync.upload(local))
+            }
+        }
+    }
+
+    /// Called after every successful save. Machine-local edits stop at the equality guard, which
+    /// is what keeps a kill-switch flip from producing a CloudKit write.
+    private func syncDidChangeLocally() {
+        guard syncEnabled, let sync, configIsReadable else { return }
+        let projection = SyncedConfig(config)
+        guard projection != lastAgreed else { return }
+        if localDirtySince == nil { localDirtySince = Date() }
+        sync.scheduleUpload(projection)
+    }
+
+    private func handleUpload(of payload: SyncedConfig, _ outcome: UploadOutcome) {
+        switch outcome {
+        case .uploaded(let date):
+            lastAgreed = payload
+            localDirtySince = nil
+            syncState = .synced(date, device: nil)
+        case .superseded(let remote, let stamp):
+            applyRemote(remote, stamp: stamp)
+        case .incompatible(let device):
+            syncState = .incompatible(device: device)
+        case .noAccount:
+            syncState = .noAccount
+        case .failed(let message):
+            syncState = .error(message)
+        }
+    }
+
+    /// Merges a payload from another Mac. Only the synced fields move; the kill switches and the
+    /// menu bar item stay as this Mac left them.
+    private func applyRemote(_ remote: SyncedConfig, stamp: SyncStamp) {
+        guard configIsReadable else { return }
+        // The helper may have flipped a kill switch while this window was in the background, and
+        // those are exactly the fields the payload will not restore.
+        reloadConfigFromDisk()
+        var candidate = config
+        remote.apply(to: &candidate)
+        // Before the assignment, not after: the save it triggers is debounced, and by the time
+        // that runs the projection already equals `lastAgreed`, so nothing is uploaded back.
+        lastAgreed = remote
+        localDirtySince = nil
+        syncState = .synced(stamp.modifiedAt, device: stamp.deviceName)
+        guard candidate != config else { return }
+        config = candidate
+    }
+
+    func openICloudSettings() {
+        NSWorkspace.shared.open(LeiosConstants.appleAccountSettingsURL)
     }
 
     // MARK: Helper lifecycle
 
     private func enableHelper() {
         do {
-            try ConfigFile.save(config)
+            if configIsReadable { try ConfigFile.save(config) }
             try installer.register()
             lastError = nil
         } catch {

@@ -30,6 +30,9 @@ jobs:
       # project scheme, so `-project` would silently run only LeiosTests.
       # Signing is ad-hoc — CI has no Developer ID, and nothing under test needs a real identity
       # (the helper's XPC team check only bites in Release builds, which this isn't).
+      # LEIOS_ENTITLEMENTS swaps in an app entitlements file without iCloud: iCloud is restricted,
+      # so it needs a provisioning profile that ad-hoc signing cannot produce. Sync defaults off
+      # and AppModel disables it outright under XCTest, so nothing here misses it.
       - name: Run tests
         run: |
           set -o pipefail
@@ -49,6 +52,7 @@ jobs:
             CODE_SIGN_IDENTITY=- \
             DEVELOPMENT_TEAM= \
             ENABLE_HARDENED_RUNTIME=NO \
+            LEIOS_ENTITLEMENTS=SupportFiles/Leios-CI.entitlements \
             | "${formatter[@]}"
 
       - name: Upload test results
@@ -131,6 +135,7 @@ jobs:
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY=- \
             DEVELOPMENT_TEAM= \
+            LEIOS_ENTITLEMENTS=SupportFiles/Leios-CI.entitlements \
             | "${formatter[@]}"
 
       # The Embed Helper and Copy LaunchAgent phases are only exercised by a full app build, and

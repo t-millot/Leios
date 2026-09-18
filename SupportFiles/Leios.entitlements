@@ -1,8 +1,29 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+    Debug entitlements for the Leios app.
+
+    No app-sandbox: the engine owns CGEventTaps, which the sandbox forbids.
+
+    iCloud carries settings between a user's Macs (see Leios/CloudSync.swift). Only the app has
+    this; the helper deliberately does not, so the login item never needs re-provisioning.
+
+    com.apple.developer.icloud-container-environment is deliberately absent here. Without it
+    CloudKit follows the embedded provisioning profile, so a development build talks to the
+    Development environment -- which is the only one that creates record types on first save.
+    The Release entitlements pin Production; see SupportFiles/Leios-Release.entitlements.
+-->
 <plist version="1.0">
 <dict>
 	<key>com.apple.security.app-sandbox</key>
 	<false/>
+	<key>com.apple.developer.icloud-container-identifiers</key>
+	<array>
+		<string>iCloud.com.tmillot.Leios</string>
+	</array>
+	<key>com.apple.developer.icloud-services</key>
+	<array>
+		<string>CloudKit</string>
+	</array>
 </dict>
 </plist>

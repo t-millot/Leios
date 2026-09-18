@@ -10,7 +10,9 @@ the whole idea: a mouse wheel turns in notches, and the engine's job is to take 
 
 Better control for external mice: smooth scrolling, click-and-drag trackpad gestures (scroll / navigate,
 Spaces / Mission Control), and click actions for extra buttons. Scrolling can be tuned per application,
-and the settings you don't change keep following the global ones.
+and the settings you don't change keep following the global ones. Turn on **Sync settings with iCloud**
+in General and your scrolling, buttons and per-app profiles follow your Apple Account to your other
+Macs; the kill switches and the menu bar item stay on the Mac you set them on.
 
 Leios is a Swift port of the input engine of [Mac Mouse Fix](https://github.com/noah-nuebling/mac-mouse-fix)
 by Noah Nuebling. The engine (`Packages/LeiosKit/Sources/LeiosEngine`) is derived from the MMF source
@@ -57,6 +59,19 @@ xcodebuild -project Leios.xcodeproj -scheme Leios -configuration Debug build
 xcodebuild test -workspace Leios.xcworkspace -scheme Leios -destination 'platform=macOS'
 cd Packages/LeiosKit && swift test
 ```
+
+The app target carries an iCloud entitlement for the `iCloud.com.tmillot.Leios` CloudKit container,
+which is restricted and so needs a provisioning profile. In Xcode that means the **iCloud**
+capability with **CloudKit** ticked on the `Leios` target. To build without provisioning it —
+which is what CI does, signing ad-hoc — swap in the entitlements that leave iCloud out:
+
+```bash
+xcodebuild -project Leios.xcodeproj -scheme Leios -configuration Debug build \
+    LEIOS_ENTITLEMENTS=SupportFiles/Leios-CI.entitlements
+```
+
+The app then reports sync as unavailable instead of offering it. Only the app target is affected;
+the helper has no iCloud entitlement, so it never needs re-provisioning.
 
 Tests live in three targets: `LeiosTests` (app-hosted — capture rules and the embedded-helper bundle
 layout), plus the package's `LeiosEngineTests` and `LeiosSharedTests`. **Run them through

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+    Entitlements for CI, selected with LEIOS_ENTITLEMENTS=SupportFiles/Leios-CI.entitlements.
+
+    iCloud is a restricted entitlement: it has to be authorised by a provisioning profile, and CI
+    signs ad-hoc with no team and no profile. Nothing under test needs iCloud (sync defaults off,
+    and AppModel switches it off outright under XCTest), so CI builds without it.
+-->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.app-sandbox</key>
+	<false/>
+</dict>
+</plist>

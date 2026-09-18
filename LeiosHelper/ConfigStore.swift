@@ -10,12 +10,17 @@ final class ConfigStore {
     private(set) var config: LeiosConfig
     var onChange: ((LeiosConfig) -> Void)?
 
+    /// True once a read of config.json has failed. The kill switches must not write over a file
+    /// this build could not parse; the app owns recovering from that.
+    private(set) var loadFailed = false
+
     private var source: DispatchSourceFileSystemObject?
     private var fd: Int32 = -1
     private var debounce: DispatchWorkItem?
 
-    init(initial: LeiosConfig) {
+    init(initial: LeiosConfig, loadFailed: Bool = false) {
         config = initial
+        self.loadFailed = loadFailed
     }
 
     func startWatching() {
@@ -48,12 +53,14 @@ final class ConfigStore {
     func reload() -> Bool {
         do {
             let new = try ConfigFile.load()
+            loadFailed = false
             if new != config {
                 config = new
                 onChange?(new)
             }
             return true
         } catch {
+            loadFailed = true
             NSLog("Leios Helper: config reload failed: \(error)")
             return false
         }
@@ -61,6 +68,10 @@ final class ConfigStore {
 
     /// Writes a modified config (used by the status menu kill switches) and applies it.
     func update(_ mutate: (inout LeiosConfig) -> Void) {
+        guard !loadFailed else {
+            NSLog("Leios Helper: refusing to write over an unreadable config")
+            return
+        }
         var new = config
         mutate(&new)
         guard new != config else { return }
