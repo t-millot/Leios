@@ -23,8 +23,7 @@ Leios is not sold.
 
 Requires macOS 27 or later on Apple silicon.
 
-1. Download [`Leios-1.0-beta-6.dmg`](https://github.com/t-millot/Leios/releases/download/v1.0-beta.6/Leios-1.0-beta-6.dmg),
-   or a newer build from [Releases](https://github.com/t-millot/Leios/releases), and drag
+1. Download `Leios-<version>.dmg` from [Releases](https://github.com/t-millot/Leios/releases) and drag
    **Leios** to Applications.
 2. Open it and turn on **Enable**.
 3. Grant Accessibility to **LeiosHelper** in System Settings → Privacy & Security → Accessibility.
