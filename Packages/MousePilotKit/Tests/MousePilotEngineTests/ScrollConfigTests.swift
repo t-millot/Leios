@@ -59,6 +59,41 @@ final class ScrollConfigTests: XCTestCase {
         XCTAssertTrue(zoom === r.resolve(modifiers: ScrollModificationResult(inputMod: .none, effectMod: .zoom), inputAxis: .vertical, display: CGMainDisplayID()))
     }
 
+    /// Per-app profiles get their own resolver, so one app's settings can't leak into another's.
+    func testResolversAreIndependentPerApp() {
+        let smooth = resolver(smoothness: .high, speed: .medium)
+        let plain = resolver(smoothness: .off, speed: .system)
+        XCTAssertEqual(smooth.base.animationCurve, .highInertiaPlusTrackpadSim)
+        XCTAssertEqual(plain.base.animationCurve, .none)
+        XCTAssertTrue(plain.base.isNoOp || plain.base.invertDirection == -1)
+    }
+
+    /// `settingsChanged` re-runs `update` on every surviving profile resolver on any config change,
+    /// so an unchanged profile must keep its warm cache rather than rebuild every curve.
+    func testNoOpUpdateKeepsCache() {
+        let r = resolver(smoothness: .high, speed: .medium)
+        let mods = ScrollModificationResult(inputMod: .none, effectMod: .zoom)
+        let first = r.resolve(modifiers: mods, inputAxis: .vertical, display: CGMainDisplayID())
+        r.update(settings: r.settings)
+        XCTAssertTrue(first === r.resolve(modifiers: mods, inputAxis: .vertical, display: CGMainDisplayID()))
+    }
+
+    /// Settings that reproduce the incoming event exactly let the engine pass it through untouched
+    /// instead of swallowing and re-synthesizing it.
+    func testIsNoOp() {
+        var s = ScrollSettings()
+        s.smoothness = .off
+        s.speed = .system
+        s.reverseDirection = false
+        XCTAssertTrue(ScrollConfigResolver(settings: s).base.isNoOp)
+        var reversed = s
+        reversed.reverseDirection = true
+        XCTAssertFalse(ScrollConfigResolver(settings: reversed).base.isNoOp)
+        var smooth = s
+        smooth.smoothness = .high
+        XCTAssertFalse(ScrollConfigResolver(settings: smooth).base.isNoOp)
+    }
+
     func testScrollModifiersFromFlags() {
         let s = ScrollModifierFlags()
         XCTAssertEqual(ScrollModifiers.modifications(forFlags: MPConstants.ModifierFlag.shift, settings: s).effectMod, .horizontalScroll)

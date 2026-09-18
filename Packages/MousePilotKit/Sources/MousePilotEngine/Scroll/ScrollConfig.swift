@@ -105,6 +105,10 @@ final class ScrollConfig {
     var accelerationCurve: Curve?
     var useAppleAcceleration: Bool { accelerationCurve == nil }
 
+    /// True when this config would reproduce the incoming wheel event as it arrived, so the event
+    /// can be passed through instead of being swallowed and re-synthesized from its components.
+    var isNoOp: Bool { !smoothEnabled && useAppleAcceleration && invertDirection == 1 }
+
     init(settings: ScrollSettings) {
         smoothness = settings.smoothness
         speed = settings.speed

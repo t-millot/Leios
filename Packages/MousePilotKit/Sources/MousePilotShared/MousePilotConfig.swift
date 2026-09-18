@@ -10,8 +10,21 @@ public struct MousePilotConfig: Codable, Equatable, Sendable {
     /// Keyed by mouse button number (3…32). Encoded with string keys in JSON.
     public var buttons: [Int: ButtonMapping] = MousePilotConfig.defaultButtons
     public var general = GeneralSettings()
+    /// Per-application scroll profiles, keyed by bundle identifier. Buttons and drags are global.
+    public var apps: [String: AppProfile] = [:]
 
     public init() {}
+
+    /// The scroll settings each profiled app should actually get. Profiles that resolve to the
+    /// global settings are dropped, so the engine can skip the app lookup when nothing differs.
+    public var effectiveAppScroll: [String: ScrollSettings] {
+        var result: [String: ScrollSettings] = [:]
+        for (bundleID, profile) in apps {
+            let resolved = profile.scroll.resolved(against: scroll)
+            if resolved != scroll { result[bundleID] = resolved }
+        }
+        return result
+    }
 
     public static let defaultButtons: [Int: ButtonMapping] = [
         4: ButtonMapping(click: .navigateBack, drag: .threeFingerSwipe),
@@ -27,13 +40,30 @@ public struct MousePilotConfig: Codable, Equatable, Sendable {
     /// side buttons on Back/Forward, which is what the thumb buttons of a five-button mouse do elsewhere).
     public static let fiveButtonPreset: [Int: ButtonMapping] = defaultButtons
 
-    enum CodingKeys: String, CodingKey { case version, scroll, buttons, general }
+    /// What `SwitchMaster` needs to decide whether the scroll tap must run. The tap is armed before
+    /// the app under the pointer is known, so it has to cover the global settings *and* every profile.
+    public var scrollGating: ScrollGating {
+        let perApp = effectiveAppScroll.values
+        var maps = [scroll.modifiers]
+        for settings in perApp where !maps.contains(settings.modifiers) {
+            maps.append(settings.modifiers)
+        }
+        return ScrollGating(modifiesByDefault: scroll.modifiesScrollByDefault || perApp.contains { $0.modifiesScrollByDefault },
+                            modifierMaps: maps)
+    }
+
+    enum CodingKeys: String, CodingKey { case version, scroll, buttons, general, apps }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 1
         scroll = try c.decodeIfPresent(ScrollSettings.self, forKey: .scroll) ?? ScrollSettings()
         general = try c.decodeIfPresent(GeneralSettings.self, forKey: .general) ?? GeneralSettings()
+        if let raw = try c.decodeIfPresent([String: AppProfile].self, forKey: .apps) {
+            apps = raw.filter { !$0.key.isEmpty }
+        } else {
+            apps = [:]
+        }
         if let raw = try c.decodeIfPresent([String: ButtonMapping].self, forKey: .buttons) {
             var result: [Int: ButtonMapping] = [:]
             for (k, v) in raw {
@@ -50,6 +80,7 @@ public struct MousePilotConfig: Codable, Equatable, Sendable {
         try c.encode(version, forKey: .version)
         try c.encode(scroll, forKey: .scroll)
         try c.encode(general, forKey: .general)
+        try c.encode(apps, forKey: .apps)
         var raw: [String: ButtonMapping] = [:]
         for (k, v) in buttons { raw[String(k)] = v }
         try c.encode(raw, forKey: .buttons)
@@ -79,6 +110,16 @@ public struct ScrollSettings: Codable, Equatable, Sendable {
 
     public init() {}
 
+    /// True when these settings change scrolling with no modifier held, which is what decides
+    /// whether the scroll tap has to run at all.
+    ///
+    /// `precise` and `trackpadSimulation` are deliberately absent: `precise` only feeds the
+    /// acceleration curve, which is dropped entirely at `speed == .system`, and `trackpadSimulation`
+    /// only picks between two curves once `smoothness == .high`. Neither can modify scrolling alone.
+    public var modifiesScrollByDefault: Bool {
+        smoothness != .off || speed != .system || reverseDirection
+    }
+
     enum CodingKeys: String, CodingKey { case smoothness, speed, precise, reverseDirection, trackpadSimulation, modifiers }
 
     public init(from decoder: Decoder) throws {
@@ -90,6 +131,77 @@ public struct ScrollSettings: Codable, Equatable, Sendable {
         trackpadSimulation = try c.decodeIfPresent(Bool.self, forKey: .trackpadSimulation) ?? true
         modifiers = try c.decodeIfPresent(ScrollModifierFlags.self, forKey: .modifiers) ?? ScrollModifierFlags()
     }
+}
+
+/// Per-application scroll overrides. A `nil` field keeps following the global setting, so changing
+/// a global value still moves every app that never pinned it.
+///
+/// Unlike its neighbours this relies on the synthesized `Codable`: every field is optional, so the
+/// synthesized decoder already tolerates any missing key and the synthesized encoder omits unset
+/// fields instead of writing nulls. Hand-writing it would only restate that.
+public struct ScrollOverrides: Codable, Equatable, Sendable {
+    public var smoothness: ScrollSettings.Smoothness?
+    public var speed: ScrollSettings.Speed?
+    public var precise: Bool?
+    public var reverseDirection: Bool?
+    public var trackpadSimulation: Bool?
+    /// Overridden as a block, not per modifier: the four are mutually exclusive, so a half-inherited
+    /// set could put two roles on the same key.
+    public var modifiers: ScrollModifierFlags?
+
+    public init() {}
+
+    public var isEmpty: Bool {
+        smoothness == nil && speed == nil && precise == nil
+            && reverseDirection == nil && trackpadSimulation == nil && modifiers == nil
+    }
+
+    public func resolved(against global: ScrollSettings) -> ScrollSettings {
+        var result = global
+        if let smoothness { result.smoothness = smoothness }
+        if let speed { result.speed = speed }
+        if let precise { result.precise = precise }
+        if let reverseDirection { result.reverseDirection = reverseDirection }
+        if let trackpadSimulation { result.trackpadSimulation = trackpadSimulation }
+        if let modifiers { result.modifiers = modifiers }
+        return result
+    }
+}
+
+/// One application's entry in the Apps tab. Scroll only — buttons and drag gestures stay global.
+public struct AppProfile: Codable, Equatable, Sendable {
+    /// Display name captured when the app was added, so an app that is no longer installed
+    /// still shows a name rather than a bare bundle identifier.
+    public var name: String?
+    public var scroll = ScrollOverrides()
+
+    public init(name: String? = nil, scroll: ScrollOverrides = ScrollOverrides()) {
+        self.name = name
+        self.scroll = scroll
+    }
+
+    enum CodingKeys: String, CodingKey { case name, scroll }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decodeIfPresent(String.self, forKey: .name)
+        scroll = try c.decodeIfPresent(ScrollOverrides.self, forKey: .scroll) ?? ScrollOverrides()
+    }
+}
+
+/// Precomputed answer to "must the scroll tap run?", covering the global settings and every profile.
+public struct ScrollGating: Equatable, Sendable {
+    /// Some settings modify scrolling with no modifier held.
+    public let modifiesByDefault: Bool
+    /// Every distinct modifier map in play, so held flags can be tested against all of them.
+    public let modifierMaps: [ScrollModifierFlags]
+
+    public init(modifiesByDefault: Bool, modifierMaps: [ScrollModifierFlags]) {
+        self.modifiesByDefault = modifiesByDefault
+        self.modifierMaps = modifierMaps
+    }
+
+    public var anyModifierConfigured: Bool { modifierMaps.contains { $0.anyConfigured } }
 }
 
 /// Keyboard modifier flags (CGEventFlags raw values) that change scrolling behavior. 0 disables the modifier.

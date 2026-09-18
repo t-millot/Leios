@@ -15,15 +15,14 @@ final class SwitchMaster {
 
     private var config: MousePilotConfig { subsystems.config }
 
-    /// Scrolling is modified regardless of modifiers.
-    private var defaultModifiesScroll: Bool {
-        let s = config.scroll
-        return s.smoothness != .off || s.speed != .system || s.reverseDirection
-    }
+    /// Gating covers the global settings *and* every app profile: the tap has to be armed before the
+    /// app under the pointer is known, so one profile that modifies scrolling arms it for everything.
+    private var gating: ScrollGating { subsystems.scrollGating }
 
-    private var keyboardScrollModsConfigured: Bool {
-        config.scroll.modifiers.anyConfigured
-    }
+    /// Scrolling is modified regardless of modifiers.
+    private var defaultModifiesScroll: Bool { gating.modifiesByDefault }
+
+    private var keyboardScrollModsConfigured: Bool { gating.anyModifierConfigured }
 
     /// Re-evaluates every tap. Call on start, config change, modifier change and kill-switch change.
     func reevaluate() {
@@ -34,9 +33,10 @@ final class SwitchMaster {
         let listenForFlags = general.scrollingEnabled && keyboardScrollModsConfigured && !defaultModifiesScroll
         subsystems.modifiers.setKeyboardListening(listenForFlags)
 
-        // Scroll tap
-        let currentKbMod = ScrollModifiers.modifications(forFlags: modifierState.keyboardFlags, settings: config.scroll.modifiers)
-        let scrollOn = general.scrollingEnabled && (defaultModifiesScroll || !currentKbMod.isEmpty)
+        // Scroll tap. The held flags are tested against every modifier map in play, not just the
+        // global one — an app profile may put a role on a key the global settings leave unused.
+        let anyKbMod = gating.modifierMaps.contains { !ScrollModifiers.modifications(forFlags: modifierState.keyboardFlags, settings: $0).isEmpty }
+        let scrollOn = general.scrollingEnabled && (defaultModifiesScroll || anyKbMod)
         subsystems.scroll.setReceiving(scrollOn)
 
         // Buttons. A capture armed by the settings app needs the tap even when nothing is mapped,

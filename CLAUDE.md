@@ -45,7 +45,22 @@ tccutil reset Accessibility com.tmillot.MousePilot.Helper
 
 **`SwitchMaster` is the only place that decides which taps run.** Unused input paths cost nothing: taps are created disabled in `EngineSubsystems.start()` and `SwitchMaster.reevaluate()` turns each one on or off from the current config, modifier state and capture state. Anything that changes those must end in a `reevaluate()` — never call `setReceiving` on a subsystem from elsewhere.
 
-**Config flows one way: app → `config.json` → helper.** The app debounces writes (100 ms) to `~/Library/Application Support/MousePilot/config.json`; the helper's `ConfigStore` watches the *directory* with a `DispatchSourceFileSystemObject` (150 ms debounce) and the app also pokes `reloadConfig` over XPC, so both paths must stay idempotent. From there: `Engine.apply` → `EngineSubsystems.configChanged` → subsystem updates → `reevaluate()`. Adding a setting therefore means: field on `MousePilotConfig` (+ `decodeIfPresent` default in the hand-written `init(from:)` — the codable conformances exist precisely so an older or newer file never fails to load), a control in `MousePilot/Views/`, and consumption in `configChanged`.
+**Config flows one way: app → `config.json` → helper.** The app debounces writes (100 ms) to `~/Library/Application Support/MousePilot/config.json`; the helper's `ConfigStore` watches the *directory* with a `DispatchSourceFileSystemObject` (150 ms debounce) and the app also pokes `reloadConfig` over XPC, so both paths must stay idempotent. From there: `Engine.apply` → `EngineSubsystems.configChanged` → subsystem updates → `reevaluate()`. Adding a setting therefore means: field on `MousePilotConfig` (+ `decodeIfPresent` default in the hand-written `init(from:)` — the codable conformances exist precisely so an older or newer file never fails to load), a control in `MousePilot/Views/`, and consumption in `configChanged`. A *scroll* setting also needs an
+optional twin on `ScrollOverrides` and a row in `ScrollSettingsForm`, which renders both the global
+tab and each app profile from the same code.
+
+**Per-app scroll profiles are chosen by the app under the pointer, and the tap is gated on their
+union.** `config.apps` holds a `ScrollOverrides` per bundle ID, where a `nil` field keeps following
+the global value; `MousePilotConfig.effectiveAppScroll` resolves them and drops any profile that
+comes out equal to the global settings, so the engine can skip the lookup entirely. `ScrollController`
+keeps one `ScrollConfigResolver` per profiled app and picks one per *scroll sequence* (a gap of
+`sequenceGap`), not per tick — `EventUtility.bundleIDOfAppUnderPointer` walks the whole window list
+and would time the tap out if called on every tick of a slow scroll. Two invariants follow:
+`SwitchMaster` must gate the scroll tap on `MousePilotConfig.scrollGating`, which covers the global
+settings *and* every profile, because the tap is armed before the target app is known; and because
+that arms the tap system-wide, `ScrollController.process` returns false for a config that would
+reproduce the event unchanged (`ScrollConfig.isNoOp`) so unprofiled apps still get their original
+event rather than a re-synthesized copy.
 
 **XPC is helper-hosted, not an XPC service.** The helper is a launchd agent (`SupportFiles/com.tmillot.MousePilot.Helper.plist`, `MachServices`), registered by the app through `SMAppService.agent(plistName:)`. `XPCService` rejects connections whose code-signing team doesn't match its own — with a `#if DEBUG` escape hatch for unsigned local builds, so a Release build without a signing team on **both** targets silently refuses to talk to its own app.
 

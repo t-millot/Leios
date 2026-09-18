@@ -11,6 +11,10 @@ final class EngineSubsystems {
     let thread: EngineThread
     let clockPool: FrameClockPool
     private(set) var config: MousePilotConfig
+    /// Derived from `config` and cached, because `SwitchMaster.reevaluate()` runs on every
+    /// modifier change and must not walk the profile list each time.
+    private(set) var appScroll: [String: ScrollSettings]
+    private(set) var scrollGating: ScrollGating
 
     let modifiers: Modifiers
     let touchSim: TouchSimulator
@@ -29,11 +33,13 @@ final class EngineSubsystems {
         self.thread = engine.thread
         self.clockPool = clockPool
         self.config = engine.config
+        appScroll = config.effectiveAppScroll
+        scrollGating = config.scrollGating
 
         modifiers = Modifiers(runLoop: thread.runLoop)
         touchSim = TouchSimulator(thread: thread)
         gestureSim = GestureScrollSimulator(clockPool: clockPool)
-        scroll = ScrollController(thread: thread, modifiers: modifiers, settings: config.scroll, clockPool: clockPool, gestureSim: gestureSim, touchSim: touchSim)
+        scroll = ScrollController(thread: thread, modifiers: modifiers, settings: config.scroll, apps: appScroll, clockPool: clockPool, gestureSim: gestureSim, touchSim: touchSim)
         remapTable = RemapTable(buttons: config.buttons)
         executor = ActionExecutor(touchSim: touchSim)
         buttonsLogic = Buttons(thread: thread, modifiers: modifiers, remapTable: remapTable, executor: executor)
@@ -97,7 +103,9 @@ final class EngineSubsystems {
     func configChanged(_ config: MousePilotConfig) {
         thread.assertOnEngineThread()
         self.config = config
-        scroll.settingsChanged(config.scroll)
+        appScroll = config.effectiveAppScroll
+        scrollGating = config.scrollGating
+        scroll.settingsChanged(config.scroll, apps: appScroll)
         remapTable.update(buttons: config.buttons)
         buttonsLogic.useButtonModifiers = remapTable.anyDragMapped
         switchMaster.reevaluate()

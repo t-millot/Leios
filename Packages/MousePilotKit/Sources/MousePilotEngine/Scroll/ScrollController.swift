@@ -15,7 +15,10 @@ final class ScrollController {
 
     private unowned let thread: EngineThread
     private let modifiers: Modifiers
-    let resolver: ScrollConfigResolver
+    let baseResolver: ScrollConfigResolver
+    /// One resolver per profiled app, so each keeps its own warm `resolve` cache.
+    private var appResolvers: [String: ScrollConfigResolver] = [:]
+    private var appSettings: [String: ScrollSettings] = [:]
     private let animator: TouchAnimator
     private let gestureSim: GestureScrollSimulator
     private let touchSim: TouchSimulator
@@ -27,17 +30,23 @@ final class ScrollController {
     // Dynamic state
     private var currentModifications = ScrollModificationResult()
     private var scrollConfig: ScrollConfig
+    /// Bundle ID of the profiled app the current scroll sequence belongs to, `nil` for the global
+    /// settings. Keyed by name rather than by resolver identity so it survives a settings reload.
+    private var activeProfile: String?
+    private var lastTickTime: CFTimeInterval = -.infinity
     private var lastAnalysisResult: ScrollAnalysisResult?
     private var previousMouseLocation: CGPoint = .zero
     private var mouseDidMove = false
     private var lastMomentumHint: MomentumHint = .none
     private let linePixelator = VectorSubPixelator.biased()
 
-    init(thread: EngineThread, modifiers: Modifiers, settings: ScrollSettings, clockPool: FrameClockPool, gestureSim: GestureScrollSimulator, touchSim: TouchSimulator) {
+    init(thread: EngineThread, modifiers: Modifiers, settings: ScrollSettings, apps: [String: ScrollSettings], clockPool: FrameClockPool, gestureSim: GestureScrollSimulator, touchSim: TouchSimulator) {
         self.thread = thread
         self.modifiers = modifiers
-        self.resolver = ScrollConfigResolver(settings: settings)
-        self.scrollConfig = resolver.base
+        self.baseResolver = ScrollConfigResolver(settings: settings)
+        self.scrollConfig = baseResolver.base
+        self.appSettings = apps
+        self.appResolvers = apps.mapValues { ScrollConfigResolver(settings: $0) }
         self.animator = TouchAnimator(clockPool: clockPool)
         self.gestureSim = gestureSim
         self.touchSim = touchSim
@@ -62,12 +71,26 @@ final class ScrollController {
         tap = nil
     }
 
-    func settingsChanged(_ settings: ScrollSettings) {
-        if settings != resolver.settings {
-            reset()
-            resolver.update(settings: settings)
-            scrollConfig = resolver.base
+    /// `apps` is already resolved against the global settings, and profiles that came out equal to
+    /// them have been dropped, so an empty dictionary means "nothing app-specific to look up".
+    func settingsChanged(_ settings: ScrollSettings, apps: [String: ScrollSettings]) {
+        // Guard on both, or every unrelated Buttons/General edit would reset an in-flight animation.
+        guard settings != baseResolver.settings || apps != appSettings else { return }
+        reset()
+        baseResolver.update(settings: settings)
+        var next: [String: ScrollConfigResolver] = [:]
+        for (bundleID, appScroll) in apps {
+            if let existing = appResolvers[bundleID] {
+                existing.update(settings: appScroll) // no-op when unchanged, so its cache survives
+                next[bundleID] = existing
+            } else {
+                next[bundleID] = ScrollConfigResolver(settings: appScroll)
+            }
         }
+        appResolvers = next
+        appSettings = apps
+        activeProfile = nil
+        scrollConfig = baseResolver.base
     }
 
     /// Cancels the animation, stops momentum and resets analysis (called on modifier changes and by drags).
@@ -76,6 +99,7 @@ final class ScrollController {
         gestureSim.stopMomentumScroll()
         analyzer.reset()
         lastMomentumHint = .none
+        lastTickTime = -.infinity // the next tick starts a new sequence, so the app is looked up again
     }
 
     // MARK: Tap callback
@@ -99,24 +123,32 @@ final class ScrollController {
         }
 
         let tickTime = event.timestampSeconds
-        process(event: event, deltaAxis1: deltaAxis1, deltaAxis2: deltaAxis2, tickTime: tickTime)
+        guard process(event: event, deltaAxis1: deltaAxis1, deltaAxis2: deltaAxis2, tickTime: tickTime) else {
+            return Unmanaged.passUnretained(event)
+        }
         return nil // swallow the wheel event
     }
 
     // MARK: Processing
 
-    private func process(event: CGEvent, deltaAxis1: Int64, deltaAxis2: Int64, tickTime: CFTimeInterval) {
+    /// Returns false when the event should be passed through untouched instead of swallowed.
+    @discardableResult
+    private func process(event: CGEvent, deltaAxis1: Int64, deltaAxis2: Int64, tickTime: CFTimeInterval) -> Bool {
         let inputAxis: MFAxis = deltaAxis2 != 0 ? .horizontal : .vertical
         var scrollDelta = inputAxis == .vertical ? deltaAxis1 : deltaAxis2
 
-        // Preliminary analysis with the current config to detect the first consecutive tick.
+        // Preliminary analysis with the current config to detect the first consecutive tick. The
+        // direction is recomputed below because the config may change in between — not redundant.
         var scrollDirection = ScrollController.direction(axis: inputAxis, delta: scrollDelta, invert: scrollConfig.invertDirection, horizontalModifier: currentModifications.effectMod == .horizontalScroll)
         let firstConsecutive = analyzer.peekIsFirstConsecutiveTick(at: tickTime, direction: scrollDirection, config: scrollConfig)
 
         if firstConsecutive {
             updateMouseDidMove(event: event)
+            let resolver = resolveProfile(event: event, tickTime: tickTime)
             let flags = modifiers.current(event: event).keyboardFlags
-            let newMods = ScrollModifiers.modifications(forFlags: flags, settings: scrollConfig.modifierFlags)
+            // The modifier map comes from the chosen profile, not from the outgoing `scrollConfig`:
+            // an app with its own modifiers must apply them from its very first tick.
+            let newMods = ScrollModifiers.modifications(forFlags: flags, settings: resolver.base.modifierFlags)
             if newMods != currentModifications {
                 reset()
                 currentModifications = newMods
@@ -127,6 +159,12 @@ final class ScrollController {
             let display = EventUtility.displayUnderPointer(event: event)
             scrollConfig = resolver.resolve(modifiers: newMods, inputAxis: inputAxis, display: display)
         }
+        lastTickTime = tickTime
+
+        // Nothing here would change the event. Hand the original through rather than swallowing it
+        // and re-synthesizing a lossy copy — the tap may be running only for some *other* app's
+        // profile, and apps that are not profiled must behave exactly as they did before.
+        if scrollConfig.isNoOp && currentModifications.isEmpty { return false }
 
         scrollDirection = ScrollController.direction(axis: inputAxis, delta: scrollDelta, invert: scrollConfig.invertDirection, horizontalModifier: currentModifications.effectMod == .horizontalScroll)
         let result = analyzer.update(tickAt: tickTime, direction: scrollDirection, config: scrollConfig)
@@ -145,11 +183,11 @@ final class ScrollController {
             }
             timeBetweenTicks = max(timeBetweenTicks, scrollConfig.consecutiveScrollTickInterval_AccelerationEnd)
             let scrollSpeed = 1 / timeBetweenTicks
-            guard let accelerationCurve = scrollConfig.accelerationCurve else { return }
+            guard let accelerationCurve = scrollConfig.accelerationCurve else { return true }
             pxToScrollForThisTick = Int64(accelerationCurve.evaluate(at: scrollSpeed))
             if pxToScrollForThisTick <= 0 {
                 Log.scroll.error("Acceleration curve produced \(pxToScrollForThisTick) px for speed \(scrollSpeed)")
-                return
+                return true
             }
 
             if let fastScrollCurve = scrollConfig.fastScrollCurve {
@@ -162,7 +200,7 @@ final class ScrollController {
             let currentAnimationSpeed = magnitude(animator.lastAnimationSpeed)
             if let previousResult, previousResult.scrollDirectionDidChange, currentAnimationSpeed > 0 {
                 animator.cancel()
-                return
+                return true
             }
         }
 
@@ -245,7 +283,32 @@ final class ScrollController {
                 sendScroll(px: Int64(distanceDelta), direction: direction, animated: true, phase: animationPhase, momentumHint: momentumHint, config: config)
             })
         }
+        return true
     }
+
+    /// Picks the resolver for the app under the pointer, once per scroll sequence.
+    ///
+    /// The lookup walks the whole on-screen window list, which is far too slow to run on every
+    /// tick — slow scrolling makes every tick a "first consecutive" one. Holding the choice for the
+    /// whole gesture is also the behaviour we want: the feel must not change mid-flick because the
+    /// pointer grazed a window edge.
+    private func resolveProfile(event: CGEvent, tickTime: CFTimeInterval) -> ScrollConfigResolver {
+        let previous = activeProfile
+        if appResolvers.isEmpty {
+            activeProfile = nil
+        } else if tickTime - lastTickTime > ScrollController.sequenceGap {
+            let bundleID = EventUtility.bundleIDOfAppUnderPointer(event: event)
+            activeProfile = bundleID.flatMap { appResolvers[$0] != nil ? $0 : nil }
+        }
+        // Switching apps cancels momentum started under the other app's curve. This has to happen
+        // before `currentModifications` is updated: `reset()` calls the animation callback
+        // synchronously, and that callback reads the modifications the animation began with.
+        if activeProfile != previous { reset() }
+        return activeProfile.flatMap { appResolvers[$0] } ?? baseResolver
+    }
+
+    /// A scroll sequence ends after this long without a tick; the next one re-reads the app.
+    private static let sequenceGap: CFTimeInterval = 0.5
 
     private func updateMouseDidMove(event: CGEvent) {
         let location = event.location

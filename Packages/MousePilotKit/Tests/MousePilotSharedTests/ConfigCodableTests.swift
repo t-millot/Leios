@@ -31,6 +31,50 @@ final class ConfigCodableTests: XCTestCase {
         XCTAssertTrue(decoded.general.scrollingEnabled)
     }
 
+    func testAppProfilesRoundTrip() throws {
+        var config = MousePilotConfig()
+        config.apps["com.apple.Safari"] = AppProfile(name: "Safari")
+        config.apps["com.apple.Safari"]?.scroll.speed = .high
+        config.apps["com.apple.Safari"]?.scroll.modifiers = ScrollModifierFlags()
+        let data = try ConfigFile.encode(config)
+        let decoded = try ConfigFile.decode(data)
+        XCTAssertEqual(decoded, config)
+    }
+
+    /// Unset overrides must be omitted, not written as nulls — the JSON is what tells you at a
+    /// glance which fields an app has actually pinned.
+    func testUnsetOverridesAreOmitted() throws {
+        var config = MousePilotConfig()
+        config.apps["com.apple.Safari"] = AppProfile(name: "Safari")
+        config.apps["com.apple.Safari"]?.scroll.speed = .high
+        let data = try ConfigFile.encode(config)
+        let json = try XCTUnwrap(String(bytes: data, encoding: .utf8))
+        XCTAssertTrue(json.contains("\"speed\" : \"high\""))
+        XCTAssertFalse(json.contains("null"))
+    }
+
+    func testPartialAppProfileKeepsOtherFieldsUnset() throws {
+        let json = #"{"apps":{"com.apple.Safari":{"scroll":{"speed":"high"}}}}"#
+        let decoded = try ConfigFile.decode(Data(json.utf8))
+        let overrides = try XCTUnwrap(decoded.apps["com.apple.Safari"]).scroll
+        XCTAssertEqual(overrides.speed, .high)
+        XCTAssertNil(overrides.smoothness)
+        XCTAssertNil(overrides.modifiers)
+        // An untouched field still follows the global setting.
+        XCTAssertEqual(overrides.resolved(against: decoded.scroll).smoothness, decoded.scroll.smoothness)
+    }
+
+    func testMissingAppsKeyDecodesToEmpty() throws {
+        XCTAssertTrue(try ConfigFile.decode(Data("{}".utf8)).apps.isEmpty)
+        XCTAssertTrue(try ConfigFile.decode(Data(#"{"apps":{}}"#.utf8)).apps.isEmpty)
+    }
+
+    func testEmptyBundleIdentifierIsDropped() throws {
+        let json = #"{"apps":{"":{"name":"Nothing"},"com.apple.Safari":{"name":"Safari"}}}"#
+        let decoded = try ConfigFile.decode(Data(json.utf8))
+        XCTAssertEqual(decoded.apps.keys.sorted(), ["com.apple.Safari"])
+    }
+
     func testInvalidButtonKeysAreDropped() throws {
         let json = #"{"buttons":{"abc":{},"99":{},"5":{"drag":"twoFingerSwipe"}}}"#
         let decoded = try ConfigFile.decode(Data(json.utf8))

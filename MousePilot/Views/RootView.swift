@@ -14,6 +14,7 @@ struct RootView: View {
             Divider()
             TabView {
                 ScrollingSettingsView().tabItem { Label("Scrolling", systemImage: "arrow.up.and.down") }
+                AppsSettingsView().tabItem { Label("Apps", systemImage: "square.grid.2x2") }
                 ButtonsSettingsView().tabItem { Label("Buttons", systemImage: "computermouse") }
                 GeneralSettingsView().tabItem { Label("General", systemImage: "gearshape") }
             }

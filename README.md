@@ -4,6 +4,7 @@
 
 Better control for external mice on macOS: smooth scrolling, click-and-drag trackpad gestures
 (scroll / navigate, Spaces / Mission Control), and click actions for extra mouse buttons.
+Scrolling can be tuned per application, and the settings you don't change keep following the global ones.
 
 MousePilot is a Swift port of the input engine of [Mac Mouse Fix](https://github.com/noah-nuebling/mac-mouse-fix)
 by Noah Nuebling. The engine (`Packages/MousePilotKit/Sources/MousePilotEngine`) is derived from the MMF source
