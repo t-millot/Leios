@@ -19,6 +19,7 @@ struct RootView: View {
                 ScrollingSettingsView().tabItem { Label("Scrolling", systemImage: "arrow.up.and.down") }
                 AppsSettingsView().tabItem { Label("Apps", systemImage: "square.grid.2x2") }
                 ButtonsSettingsView().tabItem { Label("Buttons", systemImage: "computermouse") }
+                InfoSettingsView().tabItem { Label("Info", systemImage: "info.circle") }
                 GeneralSettingsView().tabItem { Label("General", systemImage: "gearshape") }
             }
             // No top padding: the tab picker sits in the toolbar, so a top inset here reads as a

@@ -265,7 +265,8 @@ private struct ButtonCaptureCatcher: NSViewRepresentable {
 }
 
 enum MouseButtonNaming {
-    static func name(_ button: Int) -> String {
+    // nonisolated: HIDUsageNaming names button usages with it, off the main actor.
+    nonisolated static func name(_ button: Int) -> String {
         switch button {
         case 1: return "Left Button"
         case 2: return "Right Button"

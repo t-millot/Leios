@@ -80,7 +80,7 @@ osascript -e 'tell application "System Events" to tell process "MousePilot" to g
 
 Stable paths as of this writing:
 
-- Tabs (Scrolling / Buttons / General): `radio button N of tab group 1 of group 1 of toolbar 1 of window 1`
+- Tabs, in order Scrolling / Apps / Buttons / Info / General: `radio button N of tab group 1 of group 1 of toolbar 1 of window 1`
 - Enable switch: `checkbox 1 of group 2 of toolbar 1 of window 1`
 - Status: the toolbar dot, `image 1 of group 2 of toolbar 1 of window 1` — the
   state string is its accessibility *value*, not a visible label
