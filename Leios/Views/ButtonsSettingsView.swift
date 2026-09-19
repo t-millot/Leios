@@ -63,6 +63,9 @@ struct ButtonsSettingsView: View {
             }
             .padding(.horizontal)
         }
+        // A grouped Form brings its own margins and the detail column adds none, so the chrome
+        // under it pays for its own bottom margin.
+        .padding(.bottom)
     }
 
     /// Adds the pressed button to the config, or reports why it can't be added.

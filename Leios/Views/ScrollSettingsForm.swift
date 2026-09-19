@@ -63,6 +63,15 @@ struct ScrollSettingsForm: View {
                 // Only the pickers — the toggle above them must stay live, or it would disable itself.
                 .disabled(source.isProfile && !source.isOverridden(\.modifiers))
             }
+            if source.isProfile {
+                // In the form rather than under it: a caption pinned below the form would be a
+                // bar the form scrolls under, and this line is a footnote, not chrome.
+                Section {
+                    Text("App settings apply to scrolling only. Button and drag gestures always use the global settings.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
         .formStyle(.grouped)
     }

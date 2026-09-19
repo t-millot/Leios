@@ -17,11 +17,12 @@ enum HelperState: Equatable {
 
     var description: String {
         switch self {
-        case .disabled: return "Leios is off."
-        case .requiresApproval: return "Waiting for approval in System Settings → General → Login Items."
-        case .notFound: return "Helper not found inside the app bundle. Rebuild the app."
+        case .disabled: return "Leios is off"
+        case .requiresApproval: return "Waiting for approval in System Settings → General → Login Items"
+        // One clause rather than two sentences, so it ends the way the others do.
+        case .notFound: return "Helper not found inside the app bundle — rebuild the app"
         case .enabledNotRunning: return "Helper is enabled but not responding yet…"
-        case .running(let ax): return ax ? "Running." : "Running, but Accessibility permission is missing."
+        case .running(let ax): return ax ? "Running" : "Running, but Accessibility permission is missing"
         }
     }
 }

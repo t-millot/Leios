@@ -1,9 +1,9 @@
-// InfoSettingsView.swift
+// DevicesSettingsView.swift
 // Leios — what is connected: every pointing device this Mac can see, described.
 
 import SwiftUI
 
-struct InfoSettingsView: View {
+struct DevicesSettingsView: View {
     @Environment(\.controlActiveState) private var controlActiveState
 
     @State private var monitor = DeviceMonitor()
@@ -30,6 +30,7 @@ struct InfoSettingsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal)
         }
+        .padding(.bottom)
         .onAppear {
             DeviceCatalog.refresh()
             monitor.start()

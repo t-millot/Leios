@@ -1,71 +1,56 @@
 // AppsSettingsView.swift
-// Leios — per-application scroll profiles.
+// Leios — per-application scroll profiles: the sidebar rows under Apps, and what each one shows.
 
 import SwiftUI
 import LeiosShared
 
-struct AppsSettingsView: View {
-    @Environment(AppModel.self) private var model
-
-    @State private var selection: String?
-
+/// Shared by the sidebar and the detail panes, so a profile reads the same name in both places.
+enum AppProfiles {
     /// Sorted by the name the user sees, with the bundle ID breaking ties so rows never swap around.
-    private var bundleIDs: [String] {
-        model.config.apps.keys.sorted { a, b in
-            let byName = name(a).localizedStandardCompare(name(b))
+    static func sorted(_ apps: [String: AppProfile]) -> [String] {
+        apps.keys.sorted { a, b in
+            let byName = name(a, in: apps).localizedStandardCompare(name(b, in: apps))
             return byName == .orderedSame ? a < b : byName == .orderedAscending
         }
     }
 
+    /// The name recorded when the app was added, so an app that has since been removed from disk
+    /// still reads as itself rather than as a bare bundle identifier.
+    static func name(_ bundleID: String, in apps: [String: AppProfile]) -> String {
+        AppCatalog.displayName(forBundleID: bundleID) ?? apps[bundleID]?.name ?? bundleID
+    }
+}
+
+// MARK: - Sidebar
+
+struct AppSidebarRow: View {
+    @Environment(AppModel.self) private var model
+
+    let bundleID: String
+
     var body: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 0) {
-                sidebar
-                    .frame(width: 190)
-                Divider()
-                detail
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-            Text("App settings apply to scrolling only. Button and drag gestures always use the global settings.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal)
+        let installed = AppCatalog.isInstalled(bundleID)
+        Label {
+            Text(AppProfiles.name(bundleID, in: model.config.apps))
+                .lineLimit(1)
+                .opacity(installed ? 1 : 0.6)
+        } icon: {
+            Image(nsImage: AppCatalog.icon(forBundleID: bundleID))
+                .resizable()
+                .frame(width: 16, height: 16)
+                .opacity(installed ? 1 : 0.6)
         }
-        .onAppear { AppCatalog.refresh() }
+        .help(installed ? bundleID : "\(bundleID) — not installed")
     }
+}
 
-    // MARK: List
+/// The running apps that have no profile yet, plus a file picker for the ones that aren't running.
+struct AddAppMenu: View {
+    @Environment(AppModel.self) private var model
 
-    private var sidebar: some View {
-        VStack(spacing: 0) {
-            List(selection: $selection) {
-                ForEach(bundleIDs, id: \.self) { bundleID in
-                    row(bundleID).tag(bundleID)
-                }
-            }
-            .overlay {
-                if bundleIDs.isEmpty {
-                    ContentUnavailableView("No Apps", systemImage: "square.grid.2x2",
-                                           description: Text("Add an app to give it its own scroll settings."))
-                        .controlSize(.small)
-                }
-            }
-            Divider()
-            HStack(spacing: 0) {
-                addMenu
-                Button { remove() } label: { Image(systemName: "minus") }
-                    .help("Remove the selected app")
-                    .disabled(selection == nil)
-                Spacer()
-            }
-            .buttonStyle(.borderless)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-        }
-    }
+    @Binding var selection: SidebarItem?
 
-    private var addMenu: some View {
+    var body: some View {
         Menu {
             let running = AppCatalog.runningApps().filter { model.config.apps[$0.bundleID] == nil }
             if running.isEmpty {
@@ -84,76 +69,49 @@ struct AppsSettingsView: View {
                 }
             }
         } label: {
-            Image(systemName: "plus")
+            Label("Add App…", systemImage: "plus")
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
         .fixedSize()
-        .help("Add an app")
-    }
-
-    private func row(_ bundleID: String) -> some View {
-        let installed = AppCatalog.isInstalled(bundleID)
-        return HStack(spacing: 6) {
-            Image(nsImage: AppCatalog.icon(forBundleID: bundleID))
-                .resizable()
-                .frame(width: 18, height: 18)
-            VStack(alignment: .leading, spacing: 0) {
-                Text(name(bundleID)).lineLimit(1)
-                if !installed {
-                    Text("Not installed").font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            .opacity(installed ? 1 : 0.6)
-        }
-        .help(bundleID)
-    }
-
-    // MARK: Detail
-
-    @ViewBuilder
-    private var detail: some View {
-        if let selection, model.config.apps[selection] != nil {
-            VStack(spacing: 0) {
-                HStack(spacing: 8) {
-                    Image(nsImage: AppCatalog.icon(forBundleID: selection))
-                        .resizable()
-                        .frame(width: 28, height: 28)
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(name(selection)).font(.headline)
-                        Text(selection).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-                    }
-                    Spacer()
-                }
-                .padding(.horizontal)
-                .padding(.vertical, 8)
-                Divider()
-                ScrollSettingsForm(source: ScrollFieldSource(model: model, bundleID: selection))
-            }
-        } else {
-            ContentUnavailableView("No App Selected", systemImage: "cursorarrow.motionlines",
-                                   description: Text("Select an app to change how scrolling feels in it."))
-        }
-    }
-
-    // MARK: Actions
-
-    /// The name recorded when the app was added, so an app that has since been removed from disk
-    /// still reads as itself rather than as a bare bundle identifier.
-    private func name(_ bundleID: String) -> String {
-        AppCatalog.displayName(forBundleID: bundleID) ?? model.config.apps[bundleID]?.name ?? bundleID
     }
 
     private func add(bundleID: String, name: String) {
         if model.config.apps[bundleID] == nil {
             model.config.apps[bundleID] = AppProfile(name: name)
         }
-        selection = bundleID
+        selection = .app(bundleID: bundleID)
     }
+}
 
-    private func remove() {
-        guard let selection else { return }
-        model.config.apps[selection] = nil
-        self.selection = nil
+// MARK: - Detail
+
+/// What the Apps row itself shows: the section has no settings of its own, only the apps under it.
+struct AppsOverview: View {
+    private static let description = """
+    An app profile changes how scrolling feels in that app; every setting you leave alone keeps \
+    following the global settings. Button and drag gestures always use the global settings.
+    """
+
+    @Environment(AppModel.self) private var model
+
+    @Binding var selection: SidebarItem?
+
+    var body: some View {
+        // A scroll view with nothing to scroll. The title bar draws a separator unless a
+        // scrolling region is underneath it to take its backdrop from, and every other screen
+        // here is a Form — which is one already.
+        ScrollView {
+            ContentUnavailableView {
+                Label(model.config.apps.isEmpty ? "No Apps" : "No App Selected", systemImage: "square.grid.2x2")
+            } description: {
+                Text(Self.description)
+            } actions: {
+                AddAppMenu(selection: $selection)
+            }
+            // Both axes. The height keeps the empty state centred rather than riding the top;
+            // the width is what makes the scrolling region the whole column, and the title bar
+            // lights the width of its scrolling region — a region as narrow as this view's own
+            // content lights a band in the middle of the bar and leaves the rest of it flat.
+            .containerRelativeFrame([.horizontal, .vertical])
+        }
     }
 }

@@ -43,29 +43,37 @@ launchctl list | grep com.tmillot.Leios.Helper
 ```
 
 A `launchctl list` line with a PID and status `-15` means the agent is loaded
-and running. The toolbar's status dot should be green, with `Running.` as its
-tooltip and accessibility value. The other labels come from
-`HelperStatus.description` in
+and running. The status dot at the head of the sidebar should be green, with
+`Running` as its tooltip and accessibility value. The other labels come from
+`HelperState.description` in
 [AppModel.swift](../../../Leios/AppModel.swift): `Running, but Accessibility
-permission is missing.` (grant it in System Settings → Privacy & Security →
+permission is missing` (grant it in System Settings → Privacy & Security →
 Accessibility), `Waiting for approval in System Settings → General → Login
-Items.`, `Helper is enabled but not responding yet…`, and `Helper not found
-inside the app bundle. Rebuild the app.`
+Items`, `Helper is enabled but not responding yet…`, `Helper not found inside
+the app bundle — rebuild the app`, and `Leios is off`.
 
 ## Picking up a rebuilt helper
 
 The helper keeps running the binary launchd started, so after a rebuild the app
-shows `Running.` while the *old* engine is still live. Restart it in place —
+shows `Running` while the *old* engine is still live. Restart it in place —
 this keeps the same bundle path, so the Accessibility grant survives:
 
 ```bash
 launchctl kickstart -k "gui/$(id -u)/com.tmillot.Leios.Helper"
 ```
 
-The PID in `launchctl list` should change. Prefer this over toggling **Enable**
-off/on, and never re-register from a different build location unless you intend
-to re-grant Accessibility (`tccutil reset Accessibility
-com.tmillot.Leios.Helper`).
+The PID in `launchctl list` should change.
+
+**Do not reach for the Enable switch instead.** It unregisters the launchd agent
+and re-registers it from whichever bundle is running — so flipping it in a Debug
+build moves the agent to `build/Build/Products/Debug/`, where it fails to spawn
+(`last exit code = 78: EX_CONFIG` in `launchctl print
+"gui/$(id -u)/com.tmillot.Leios.Helper"`) and the helper stays down. To recover,
+quit the Debug app, open the installed one, turn Enable **off**, wait until the
+job is gone from `launchctl list` — a fast off/on does not work, the unregister
+has not finished — then turn it back on. Also never re-register from a different
+build location unless you intend to re-grant Accessibility (`tccutil reset
+Accessibility com.tmillot.Leios.Helper`).
 
 ## Drive the window
 
@@ -78,20 +86,48 @@ Dump the UI tree:
 osascript -e 'tell application "System Events" to tell process "Leios" to get entire contents of window 1'
 ```
 
+Navigation is a `NavigationSplitView`: a sidebar of rows, not tabs. The two
+columns are `group 1` (sidebar) and `group 2` (detail) `of splitter group 1 of
+group 1 of window 1`, abbreviated `<sidebar>` and `<detail>` below.
+
 Stable paths as of this writing:
 
-- Tabs, in order Scrolling / Apps / Buttons / Info / General: `radio button N of tab group 1 of group 1 of toolbar 1 of window 1`
-- Enable switch: `checkbox 1 of group 2 of toolbar 1 of window 1`
-- Status: the toolbar dot, `image 1 of group 2 of toolbar 1 of window 1` — the
-  state string is its accessibility *value*, not a visible label
-- Action pickers: `pop up button "Click and Drag" of group N of scroll area 1 of group 1 of group 1 of window 1`
+- Sidebar list: `outline 1 of scroll area 1 of <sidebar>`
+- Enable switch: `checkbox "Enable Leios" of <sidebar>`
+- Status: `image 1 of <sidebar>` — the state string is its accessibility
+  *value*, not a visible label
+- Action pickers: `pop up button "Click and Drag" of group N of scroll area 1 of <detail>`
+- Add an app (only while the Apps row is selected): `menu button "Add App…" of scroll area 1 of <detail>`
+- Remove an app (only while a profile is selected): `button 1 of toolbar 1 of window 1`
 
-Switch tabs and read the status:
+Rows are addressed by index, because the Apps row is a `DisclosureGroup` whose
+label reads back as `missing value`. Read the labels first rather than assuming
+a count — app profiles are rows too, and they sit *between* Apps and Buttons:
 
 ```bash
-osascript -e 'tell application "System Events" to tell process "Leios" to click radio button 1 of tab group 1 of group 1 of toolbar 1 of window 1'
-osascript -e 'tell application "System Events" to tell process "Leios" to get value of image 1 of group 2 of toolbar 1 of window 1'
+osascript -e 'tell application "System Events" to tell process "Leios" to get value of static text 1 of UI element 1 of every row of outline 1 of scroll area 1 of group 1 of splitter group 1 of group 1 of window 1'
+# → Scrolling, missing value, Claude, Buttons, Devices, Settings
 ```
+
+Select a row and read the status:
+
+```bash
+osascript -e 'tell application "System Events" to tell process "Leios" to set selected of item 1 of (rows of outline 1 of scroll area 1 of group 1 of splitter group 1 of group 1 of window 1) to true'
+osascript -e 'tell application "System Events" to tell process "Leios" to get value of image 1 of group 1 of splitter group 1 of group 1 of window 1'
+```
+
+Two traps:
+
+- **The window's name is the selected section**, never "Leios": `Scrolling`,
+  `Apps`, `Buttons`, `Devices`, `Settings`, or — on an app profile, where the
+  bundle ID is the window's subtitle — `Claude – com.anthropic.claudefordesktop`.
+  A path that names the window breaks as soon as the selection moves, so always
+  say `window 1`.
+- **SwiftUI context menus ignore `perform action "AXShowMenu"`**, silently. The
+  app-row "Remove" item only opens under a real `rightMouseDown`/`Up` posted to
+  `kCGHIDEventTap`. Removing a profile then raises a confirmation sheet whose
+  buttons carry no titles: `button 1 of sheet 1 of window 1` is Cancel,
+  `button 2` is Remove.
 
 Screenshot just the window (query its frame first, pad by ~10 pt):
 
@@ -102,7 +138,17 @@ screencapture -x -o -R <x>,<y>,<w>,<h> /tmp/leios.png
 
 `-x` suppresses the shutter sound, `-o` drops the window shadow. **Look at the
 PNG** — a blank or missing window is a failed launch. Python has no `Quartz`
-module on this machine, so don't reach for `CGWindowListCopyWindowInfo`.
+module on this machine, so don't reach for `CGWindowListCopyWindowInfo`; to
+measure pixels, convert with `sips -s format bmp` and parse the header, since
+PIL is not there either.
+
+Anything translucent — the title bar, the sidebar — takes its colour from what
+is *behind* the window, so a capture taken over another dark window proves
+nothing. Hide the other apps first (`set visible of process "X" to false`,
+restoring them from a `trap`) so the wallpaper is the backdrop. The title bar
+also lights on hover, which a screenshot alone will not show: warp the pointer
+with `CGWarpMouseCursorPosition` and post a `mouseMoved` to `kCGHIDEventTap`
+before capturing, and put it back afterwards.
 
 ## Check what the engine did
 
