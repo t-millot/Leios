@@ -175,16 +175,6 @@ final class StatsModel {
         rebuild()
     }
 
-    func reset(using app: AppModel) async {
-        isBusy = true
-        defer { isBusy = false }
-        await app.resetStatistics()
-        // The helper deletes the file; if it is not running, do it here so the pane does not keep
-        // showing a history the user has just asked to be rid of.
-        try? StatsFile.delete()
-        adopt(.empty)
-    }
-
     // MARK: Shaping
 
     private func rebuild() {

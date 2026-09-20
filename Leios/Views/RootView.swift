@@ -157,7 +157,7 @@ struct RootView: View {
             case .app(let bundleID): ScrollSettingsForm(source: ScrollFieldSource(model: model, bundleID: bundleID))
             case .buttons: ButtonsSettingsView()
             case .devices: DevicesSettingsView()
-            case .statistics: StatisticsView()
+            case .statistics: StatisticsView(selection: $selection)
             case .settings: GeneralSettingsView()
             }
         }

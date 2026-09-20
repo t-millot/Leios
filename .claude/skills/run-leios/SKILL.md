@@ -190,7 +190,16 @@ Time), and the charts themselves are opaque to the accessibility API beyond the
 label on each `Chart`, so verifying them means looking at a screenshot. It reads
 `~/Library/Application Support/Leios/Statistics/statistics.json`; writing a
 fixture there is the way to see the charts with a year of history behind them
-without waiting a year.
+without waiting a year. The pane only *shows* counts — **Collect usage
+statistics** and **Reset Statistics…** are in the Settings pane, under
+Statistics.
+
+A plain SwiftUI `Button` inside a `Form` reports `name` as `missing value` to
+System Events even though its title is drawn and an `.accessibilityLabel` makes
+no difference, so address those by index (`button 1 of group N of scroll area 1
+of <detail>`) rather than by title. `confirmationDialog` opens as `sheet 1 of
+window 1`, whose buttons are likewise untitled — dismiss it with
+`key code 53` when the point was only to see that it opened.
 
 ## Check what the engine did
 

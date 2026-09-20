@@ -197,8 +197,12 @@ final class AppModel {
         await client.flushStatistics()
     }
 
+    /// Discards every count: the helper's archive, this Mac's copy in iCloud, and — when the
+    /// helper is not running to do it itself — the file on disk. All three, because a reset the
+    /// user can see undone by turning Leios back on is not a reset.
     func resetStatistics() async {
         await client.resetStatistics()
+        try? StatsFile.delete()
         await withdrawStatistics()
     }
 

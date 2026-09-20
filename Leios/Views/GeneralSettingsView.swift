@@ -6,6 +6,7 @@ import LeiosShared
 
 struct GeneralSettingsView: View {
     @Environment(AppModel.self) private var model
+    @State private var confirmingReset = false
 
     var body: some View {
         @Bindable var model = model
@@ -30,6 +31,13 @@ struct GeneralSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            Section("Statistics") {
+                Toggle("Collect usage statistics", isOn: $model.config.general.collectStatistics)
+                Button("Reset Statistics…", role: .destructive) { confirmingReset = true }
+                Text("Counting happens on this Mac while Leios is running. Like the kill switches, this switch stays here — iCloud does not carry it.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Section("iCloud") {
                 Toggle("Sync settings with iCloud", isOn: $model.syncEnabled)
                 Toggle("Include usage statistics", isOn: $model.statsSyncEnabled)
@@ -47,7 +55,7 @@ struct GeneralSettingsView: View {
             Section("Kill Switches") {
                 Toggle("Scrolling enabled", isOn: $model.config.general.scrollingEnabled)
                 Toggle("Buttons enabled", isOn: $model.config.general.buttonsEnabled)
-                Text("The kill switches and the menu bar item stay on this Mac; iCloud does not carry them.")
+                Text("The kill switches, the menu bar item and the statistics switch stay on this Mac; iCloud does not carry them.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -58,6 +66,14 @@ struct GeneralSettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .confirmationDialog("Reset statistics?", isPresented: $confirmingReset) {
+            Button("Reset", role: .destructive) {
+                Task { await model.resetStatistics() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Every count Leios has kept will be discarded. This cannot be undone.")
+        }
     }
 
     private var lastCheckedDescription: String {

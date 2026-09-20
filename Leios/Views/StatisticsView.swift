@@ -9,7 +9,10 @@ struct StatisticsView: View {
     @Environment(AppModel.self) private var model
     @State private var stats = StatsModel()
     @State private var metric: StatsMetric = .distance
-    @State private var confirmingReset = false
+
+    /// The pane shows counts; the switch that produces them and the button that throws them away
+    /// both live in Settings. This is how the empty state gets the user there.
+    @Binding var selection: SidebarItem?
 
     var body: some View {
         ScrollView {
@@ -34,14 +37,6 @@ struct StatisticsView: View {
             await stats.load()
             await stats.refresh(using: model)
         }
-        .confirmationDialog("Reset statistics?", isPresented: $confirmingReset) {
-            Button("Reset", role: .destructive) {
-                Task { await stats.reset(using: model) }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Every count Leios has kept will be discarded. This cannot be undone.")
-        }
     }
 
     // MARK: Chrome
@@ -61,16 +56,14 @@ struct StatisticsView: View {
     }
 
     /// Nothing is being counted, so an empty chart would be a lie rather than a fact about the
-    /// user's week. Say why, and offer the switch.
+    /// user's week. Say why, and go to where the switch is.
     private var collectionIsOff: some View {
-        @Bindable var model = model
-        return ContentUnavailableView {
+        ContentUnavailableView {
             Label("Statistics Are Off", systemImage: "chart.bar.xaxis")
         } description: {
-            Text("Leios is not counting anything. Turn this on and the numbers start from now.")
+            Text("Leios is not counting anything. Turn it on in Settings and the numbers start from now.")
         } actions: {
-            Toggle("Collect usage statistics", isOn: $model.config.general.collectStatistics)
-                .toggleStyle(.switch)
+            Button("Open Settings") { selection = .settings }
         }
         .frame(minHeight: 240)
     }
@@ -325,17 +318,12 @@ struct StatisticsView: View {
     }
 
     private var footer: some View {
-        @Bindable var model = model
-        return VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 4) {
             Divider()
-            Toggle("Collect usage statistics", isOn: $model.config.general.collectStatistics)
-            HStack {
-                Text(sinceDescription)
+            if let since = sinceDescription {
+                Text(since)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Spacer()
-                Button("Reset Statistics…", role: .destructive) { confirmingReset = true }
-                    .disabled(stats.merged.isEmpty)
             }
             Text(privacyNote)
                 .font(.caption)
@@ -345,17 +333,18 @@ struct StatisticsView: View {
     }
 
     /// Whether counts leave this Mac depends on a switch in Settings, so say which case applies
-    /// rather than making a claim that is only true half the time.
+    /// rather than making a claim that is only true half the time. Both switches — collecting at
+    /// all, and adding up the other Macs — are in Settings now, so the note names it.
     private var privacyNote: String {
-        let switchNote = "This switch stays on this Mac, like the kill switches — iCloud does not carry it."
+        let settingsNote = "Collecting and resetting are in Settings → Statistics."
         if model.syncEnabled, model.statsSyncEnabled {
-            return "Counts from your other Macs are added in. Turn that off in Settings → iCloud. \(switchNote)"
+            return "Counts from your other Macs are added in; turn that off in Settings → iCloud. \(settingsNote)"
         }
-        return "Counts stay on this Mac. \(switchNote)"
+        return "Counts stay on this Mac. \(settingsNote)"
     }
 
-    private var sinceDescription: String {
-        guard !stats.merged.isEmpty else { return "" }
+    private var sinceDescription: String? {
+        guard !stats.merged.isEmpty else { return nil }
         return "Counting since \(stats.merged.startedAt.formatted(date: .abbreviated, time: .omitted))."
     }
 
