@@ -64,6 +64,36 @@ launchctl kickstart -k "gui/$(id -u)/com.tmillot.Leios.Helper"
 
 The PID in `launchctl list` should change.
 
+**A Debug build cannot host the launchd agent at all.** Registering it — via the Enable switch or
+`--enable-helper` — leaves the job at `last exit code = 78: EX_CONFIG` forever, because launchd
+refuses to spawn a login-item agent out of a build directory. Signing the build with Developer ID
+does not help; the location is the problem. To run a rebuilt *engine*, launch the helper binary
+directly instead:
+
+```bash
+open build/Build/Products/Debug/Leios.app/Contents/Library/LoginItems/LeiosHelper.app
+```
+
+It gets Accessibility from the existing grant as long as it is signed with the same Developer ID
+and bundle identifier (`CODE_SIGN_IDENTITY="Developer ID Application: …"`, plus
+`LEIOS_ENTITLEMENTS=SupportFiles/Leios-CI.entitlements` so the build needs no iCloud profile). What
+it does *not* get is XPC: `NSXPCListener(machServiceName:)` needs launchd to own the name, so the
+settings app will show `Helper is enabled but not responding yet…` and anything that goes over XPC
+— status, `reloadConfig`, `flushStatistics` — will not work. Verify through `config.json`,
+`statistics.json` and the unified log instead. Send it `SIGTERM` rather than `SIGKILL` to shut it
+down, so `applicationWillTerminate` runs and the engine's final flush happens.
+
+**Registering a Debug build also poisons the installed one.** LaunchServices resolves
+`com.tmillot.Leios` to whichever bundle it saw last, so after the Debug app has been opened, `smd`
+resolves the agent's relative executable path against the build directory and `/Applications` keeps
+failing to spawn even after toggling Enable off and on. Point LaunchServices back before retrying:
+
+```bash
+/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister -u build/Build/Products/Debug/Leios.app
+```
+
+then toggle Enable off, wait for the job to leave `launchctl list`, and toggle it back on.
+
 **Do not reach for the Enable switch instead.** It unregisters the launchd agent
 and re-registers it from whichever bundle is running — so flipping it in a Debug
 build moves the agent to `build/Build/Products/Debug/`, where it fails to spawn
@@ -106,7 +136,7 @@ a count — app profiles are rows too, and they sit *between* Apps and Buttons:
 
 ```bash
 osascript -e 'tell application "System Events" to tell process "Leios" to get value of static text 1 of UI element 1 of every row of outline 1 of scroll area 1 of group 1 of splitter group 1 of group 1 of window 1'
-# → Scrolling, missing value, Claude, Buttons, Devices, Settings
+# → Scrolling, missing value, Claude, Buttons, Devices, Statistics, Settings
 ```
 
 Select a row and read the status:
@@ -119,10 +149,14 @@ osascript -e 'tell application "System Events" to tell process "Leios" to get va
 Two traps:
 
 - **The window's name is the selected section**, never "Leios": `Scrolling`,
-  `Apps`, `Buttons`, `Devices`, `Settings`, or — on an app profile, where the
+  `Apps`, `Buttons`, `Devices`, `Statistics`, `Settings`, or — on an app profile, where the
   bundle ID is the window's subtitle — `Claude – com.anthropic.claudefordesktop`.
   A path that names the window breaks as soon as the selection moves, so always
   say `window 1`.
+- **Read the row labels in a separate `osascript` call from the one that selects a
+  row.** Doing both in one `tell` block re-evaluates `rows of outline 1` and can
+  raise `Invalid index` when the Apps disclosure settles between the two
+  statements.
 - **SwiftUI context menus ignore `perform action "AXShowMenu"`**, silently. The
   app-row "Remove" item only opens under a real `rightMouseDown`/`Up` posted to
   `kCGHIDEventTap`. Removing a profile then raises a confirmation sheet whose
@@ -149,6 +183,14 @@ restoring them from a `trap`) so the wallpaper is the backdrop. The title bar
 also lights on hover, which a screenshot alone will not show: warp the pointer
 with `CGWarpMouseCursorPosition` and post a `mouseMoved` to `kCGHIDEventTap`
 before capturing, and put it back afterwards.
+
+The Statistics pane is the one screen that draws rather than lists. Its range
+picker is `radio group 1 of scroll area 1 of <detail>` (`radio button 4` is All
+Time), and the charts themselves are opaque to the accessibility API beyond the
+label on each `Chart`, so verifying them means looking at a screenshot. It reads
+`~/Library/Application Support/Leios/Statistics/statistics.json`; writing a
+fixture there is the way to see the charts with a year of history behind them
+without waiting a year.
 
 ## Check what the engine did
 

@@ -40,6 +40,8 @@ final class ScrollController {
     private var mouseDidMove = false
     private var lastMomentumHint: MomentumHint = .none
     private let linePixelator = VectorSubPixelator.biased()
+    /// Set once by `EngineSubsystems`. Optional so the controller can be built without it in tests.
+    weak var stats: StatsRecorder?
 
     init(thread: EngineThread, modifiers: Modifiers, appUnderPointer: AppUnderPointerCache, settings: ScrollSettings, apps: [String: ScrollSettings], clockPool: FrameClockPool, gestureSim: GestureScrollSimulator, touchSim: TouchSimulator) {
         self.thread = thread
@@ -340,6 +342,11 @@ final class ScrollController {
     // MARK: Output
 
     private func sendScroll(px: Int64, direction: MFDirection, animated: Bool, phase: AnimationCallbackPhase, momentumHint: MomentumHint, config: ScrollConfig) {
+        // Counted here rather than at the tick: this is the single funnel every output type goes
+        // through, so it is the distance actually delivered — once per tick unsmoothed, once per
+        // animation frame smoothed, momentum included.
+        stats?.recordScrollOutput(points: px, direction: direction)
+
         var dx: Int64 = 0
         var dy: Int64 = 0
         switch direction {

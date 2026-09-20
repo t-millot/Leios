@@ -20,6 +20,9 @@ final class Buttons {
     /// Whether held buttons act as modifiers (needed for drag gestures).
     var useButtonModifiers = true
 
+    /// Set once by `EngineSubsystems`. Optional so the logic can be built without it in tests.
+    weak var stats: StatsRecorder?
+
     private var modifierState = ModifierState()
     private var modifications = Modification()
     private var maxClickLevel = -1
@@ -79,6 +82,11 @@ final class Buttons {
                   let action = modifications.action(button: button, level: clickLevel, duration: duration) else {
                 return
             }
+
+            // The one place statistics see a button *doing* something. It runs exactly once per
+            // trigger and has the button, the level, the duration and the action all in hand —
+            // none of which is true in `ActionExecutor`, which also runs again on release.
+            stats?.recordButtonAction(button: button, duration: duration, action: action)
 
             if startOrEnd == .combined {
                 executor.execute(action, phase: .combined)

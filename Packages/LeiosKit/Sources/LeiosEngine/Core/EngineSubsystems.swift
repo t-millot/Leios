@@ -27,6 +27,9 @@ final class EngineSubsystems {
     let buttons: ButtonInputReceiver
     let pointerFreeze: PointerFreeze
     let modifiedDrag: ModifiedDrag
+    let statsRecorder: StatsRecorder
+    let statsTap: StatsTap
+    let statsFlusher: StatsFlusher
     private(set) var switchMaster: SwitchMaster!
 
     init(engine: Engine, clockPool: FrameClockPool) {
@@ -49,12 +52,23 @@ final class EngineSubsystems {
         buttons.buttons = buttonsLogic
         pointerFreeze = PointerFreeze(thread: thread)
         modifiedDrag = ModifiedDrag(thread: thread, modifiers: modifiers)
+        statsRecorder = StatsRecorder(thread: thread)
+        statsTap = StatsTap(thread: thread, recorder: statsRecorder)
+        statsFlusher = StatsFlusher(thread: thread)
 
         let lockPointer: () -> Bool = { [unowned self] in self.config.general.lockPointerDuringDrag }
         modifiedDrag.setOutput(TwoFingerSwipeOutput(thread: thread, clockPool: clockPool, gestureSim: gestureSim, pointerFreeze: pointerFreeze, scroll: scroll, lockPointer: lockPointer), for: .twoFingerSwipe)
         modifiedDrag.setOutput(ThreeFingerSwipeOutput(touchSim: touchSim, pointerFreeze: pointerFreeze, lockPointer: lockPointer), for: .threeFingerSwipe)
 
         switchMaster = SwitchMaster(subsystems: self)
+
+        scroll.stats = statsRecorder
+        buttonsLogic.stats = statsRecorder
+        modifiedDrag.stats = statsRecorder
+
+        statsFlusher.drainBatch = { [unowned self] in self.statsRecorder.drain() }
+        statsFlusher.discardBatch = { [unowned self] in self.statsRecorder.discard() }
+        statsFlusher.onPeriodicTick = { [unowned self] in self.switchMaster.reevaluate() }
     }
 
     func start() {
@@ -64,6 +78,10 @@ final class EngineSubsystems {
         buttons.createTap()
         modifiedDrag.createTap()
         pointerFreeze.createTap()
+        // Last on purpose, and it has to stay last. `.headInsertEventTap` puts the newest tap at
+        // the head of the chain, and only from there does the stats tap see a scroll event before
+        // the scroll tap — a `.defaultTap` that can swallow it — has had its turn.
+        statsTap.createTap()
         modifiers.onChange = { [weak self] _ in
             self?.switchMaster.reevaluate()
         }
@@ -74,6 +92,8 @@ final class EngineSubsystems {
             self?.switchMaster.reevaluate()
         }
         buttonsLogic.useButtonModifiers = remapTable.anyDragMapped
+        statsRecorder.refreshSystemSettings()
+        statsFlusher.start()
         switchMaster.reevaluate()
     }
 
@@ -95,6 +115,9 @@ final class EngineSubsystems {
         buttons.cancelCapture()
         switchMaster.disableAll()
         buttonsLogic.killClickCycle()
+        // Before the taps go away, and synchronously: the helper may exit as soon as this returns.
+        statsFlusher.stop()
+        statsTap.invalidate()
         scroll.invalidate()
         buttons.invalidate()
         modifiedDrag.invalidate()
@@ -112,6 +135,7 @@ final class EngineSubsystems {
         scroll.settingsChanged(config.scroll, apps: appScroll)
         remapTable.update(buttons: config.buttons)
         buttonsLogic.useButtonModifiers = remapTable.anyDragMapped
+        statsRecorder.refreshSystemSettings()
         switchMaster.reevaluate()
     }
 

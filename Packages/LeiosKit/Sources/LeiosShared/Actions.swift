@@ -153,3 +153,70 @@ public enum Action: Codable, Equatable, Hashable, Sendable {
         .systemDefinedEvent(type: .volumeMute, modifierFlags: 0),
     ]
 }
+
+// MARK: Statistics keys
+
+public extension Action {
+
+    /// A stable identifier for this action in the usage statistics.
+    ///
+    /// Deliberately not `displayName`: that is user-facing text, so renaming a label — or
+    /// localizing one — would silently fork a lifetime series in two. These strings are written
+    /// into `statistics.json` and travel between Macs, so they change only when the meaning does.
+    ///
+    /// The switch has no `default`, so a new `Action` case cannot be added without deciding on
+    /// its key.
+    var statsKey: String {
+        switch self {
+        case .symbolicHotkey(let hotkey):
+            return "symbolicHotkey.\(String(describing: hotkey))"
+        case .navigateBack:
+            return "navigateBack"
+        case .navigateForward:
+            return "navigateForward"
+        case .smartZoom:
+            return "smartZoom"
+        case .middleClick:
+            return "middleClick"
+        case .mouseButtonClicks(let button, let count):
+            return "mouseButtonClicks.\(button)x\(count)"
+        case .keyboardShortcut:
+            // One key for all of them. A shortcut carries a key code and modifier flags, so
+            // keying by those would grow the archive by one entry per shortcut the user ever
+            // assigned, to say something the buttons breakdown already says better.
+            return "keyboardShortcut"
+        case .systemDefinedEvent(let type, _):
+            return "systemDefinedEvent.\(String(describing: type))"
+        }
+    }
+
+    /// The label for a key read back out of an archive. Falls back to the key itself, which is
+    /// what an archive written by a newer Leios — or synced from a Mac running one — will hit.
+    static func displayName(forStatsKey key: String) -> String {
+        if let name = statsKeyNames[key] { return name }
+        if key.hasPrefix("mouseButtonClicks.") {
+            let spec = key.dropFirst("mouseButtonClicks.".count).split(separator: "x")
+            if spec.count == 2, let button = Int(spec[0]), let count = Int(spec[1]) {
+                return Action.mouseButtonClicks(button: button, count: count).displayName
+            }
+        }
+        return key
+    }
+
+    private static let statsKeyNames: [String: String] = {
+        var names: [String: String] = [
+            Action.navigateBack.statsKey: Action.navigateBack.displayName,
+            Action.navigateForward.statsKey: Action.navigateForward.displayName,
+            Action.smartZoom.statsKey: Action.smartZoom.displayName,
+            Action.middleClick.statsKey: Action.middleClick.displayName,
+            "keyboardShortcut": "Keyboard Shortcut",
+        ]
+        for hotkey in SymbolicHotkey.allCases {
+            names[Action.symbolicHotkey(hotkey).statsKey] = hotkey.displayName
+        }
+        for type in SystemDefinedEventType.allCases {
+            names[Action.systemDefinedEvent(type: type, modifierFlags: 0).statsKey] = type.displayName
+        }
+        return names
+    }()
+}

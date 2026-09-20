@@ -51,7 +51,18 @@ final class SwitchMaster {
             subsystems.modifiedDrag.deactivate(cancel: false)
         }
 
+        // Statistics. Its own switch and nothing else: the kill switches stop Leios *changing*
+        // what the mouse does, and a user who has turned scrolling off is still scrolling.
+        //
+        // Both the tap and the recorder, because they cover different halves. The tap is the raw
+        // input; the recorder is also fed from inside `ScrollController`, `Buttons` and
+        // `ModifiedDrag`, which keep running whatever the statistics switch says.
+        let statsOn = general.collectStatistics
+        subsystems.statsRecorder.setEnabled(statsOn)
+        subsystems.statsTap.setReceiving(statsOn)
+
         subsystems.engine.updateStatus { s in
+            s.statsTapEnabled = statsOn
             s.scrollTapEnabled = scrollOn
             s.flagsTapEnabled = listenForFlags
             s.buttonTapEnabled = buttonsOn
@@ -64,6 +75,9 @@ final class SwitchMaster {
         subsystems.modifiers.setKeyboardListening(false)
         subsystems.scroll.setReceiving(false)
         subsystems.buttons.setReceiving(false)
+        // The tap only. The recorder keeps whatever it is holding, because the very next thing
+        // `EngineSubsystems.stop()` does is flush it to disk.
+        subsystems.statsTap.setReceiving(false)
         subsystems.modifiedDrag.deactivate(cancel: true)
     }
 }

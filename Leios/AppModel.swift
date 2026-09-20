@@ -56,6 +56,18 @@ final class AppModel {
     }
     private(set) var syncState: SyncState = .off
 
+    /// Whether the usage statistics travel with the settings. Machine-local for the same reason
+    /// `syncEnabled` is, and a sub-switch of it: statistics are the one synced thing that says
+    /// something about the person rather than about their preferences, so it is separately
+    /// refusable. Turning it off withdraws this Mac's copy from iCloud rather than leaving it.
+    var statsSyncEnabled: Bool {
+        didSet {
+            guard statsSyncEnabled != oldValue else { return }
+            UserDefaults.standard.set(statsSyncEnabled, forKey: DefaultsKey.statsSyncEnabled)
+            if !statsSyncEnabled { Task { await withdrawStatistics() } }
+        }
+    }
+
     var isEnabled: Bool {
         get { helperState != .disabled && helperState != .notFound }
         set { newValue ? enableHelper() : disableHelper() }
@@ -82,10 +94,15 @@ final class AppModel {
         didSet { UserDefaults.standard.set(localDirtySince, forKey: DefaultsKey.localDirtySince) }
     }
     private var syncPollTask: Task<Void, Never>?
+    private var cloudStats: CloudStats?
+    /// The identifier of the archive this Mac last handled, so the copy in iCloud can be
+    /// withdrawn after the file itself has been reset or the switch turned off.
+    private var lastStatsDeviceID = ""
 
     private enum DefaultsKey {
         static let syncEnabled = "sync.enabled"
         static let localDirtySince = "sync.localDirtySince"
+        static let statsSyncEnabled = "sync.statistics"
     }
 
     init() {
@@ -93,6 +110,10 @@ final class AppModel {
         // loop, and `LeiosTests` runs against the real Application Support directory.
         let underTest = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
         syncEnabled = !underTest && UserDefaults.standard.bool(forKey: DefaultsKey.syncEnabled)
+        // On by default, so a user who turns sync on gets the whole picture rather than a chart
+        // that silently leaves a Mac out. `syncEnabled` still gates it.
+        statsSyncEnabled = !underTest
+            && (UserDefaults.standard.object(forKey: DefaultsKey.statsSyncEnabled) as? Bool ?? true)
         updates = UpdateController(startingUpdater: !underTest)
         localDirtySince = UserDefaults.standard.object(forKey: DefaultsKey.localDirtySince) as? Date
         do {
@@ -165,6 +186,41 @@ final class AppModel {
 
     func revealConfigInFinder() {
         NSWorkspace.shared.activateFileViewerSelecting([ConfigFile.url])
+    }
+
+    // MARK: Usage statistics
+
+    /// Asks the helper to write out what it has counted, so the Statistics pane reads current
+    /// figures rather than ones up to a flush interval old. Best effort: when the helper is not
+    /// running there is nothing in flight, and what is on disk is the last thing it wrote.
+    func flushStatistics() async {
+        await client.flushStatistics()
+    }
+
+    func resetStatistics() async {
+        await client.resetStatistics()
+        await withdrawStatistics()
+    }
+
+    /// Uploads this Mac's archive and returns every other Mac's, for `StatsMerge` to add up.
+    /// Returns nothing at all when sync is off — which is also what makes the Statistics pane
+    /// show only this Mac.
+    func syncStatistics(local: StatsArchive) async -> [StatsArchive] {
+        guard syncEnabled, statsSyncEnabled, !local.deviceID.isEmpty else { return [] }
+        guard let stats = cloudStats ?? CloudStats() else { return [] }
+        cloudStats = stats
+        lastStatsDeviceID = local.deviceID
+        guard await(sync ?? CloudSync())?.isSignedIn() == true else { return [] }
+        await stats.upload(local)
+        return await stats.fetchPeers(excluding: local.deviceID)
+    }
+
+    /// Removes this Mac's copy from iCloud. Turning the switch off, or resetting the counts,
+    /// should not leave the old numbers sitting in the account for the other Macs to add in.
+    private func withdrawStatistics() async {
+        guard !lastStatsDeviceID.isEmpty, let stats = cloudStats ?? CloudStats() else { return }
+        cloudStats = stats
+        await stats.withdraw(lastStatsDeviceID)
     }
 
     // MARK: iCloud sync

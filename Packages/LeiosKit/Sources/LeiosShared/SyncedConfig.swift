@@ -5,7 +5,8 @@ import Foundation
 
 /// The projection of `LeiosConfig` that iCloud carries.
 ///
-/// Three settings are deliberately absent: the two kill switches and the menu bar item. A kill
+/// Four settings are deliberately absent: the two kill switches, the menu bar item and the
+/// statistics switch. A kill
 /// switch means "stop doing this *here*, right now", so syncing one would reach across and turn
 /// the engine off on the user's other Mac. Keeping them out of this type is what enforces that —
 /// `apply(to:)` has no way to reach them, so they survive a remote apply by construction rather
@@ -110,7 +111,8 @@ public struct SyncedConfig: Codable, Equatable, Sendable {
 }
 
 /// The syncable part of `GeneralSettings`. One field today, and the type earns its place by what
-/// it leaves out: `scrollingEnabled`, `buttonsEnabled` and `showMenuBarItem` are machine-local.
+/// it leaves out: `scrollingEnabled`, `buttonsEnabled`, `showMenuBarItem` and `collectStatistics`
+/// are machine-local.
 public struct SyncedGeneralSettings: Codable, Equatable, Sendable {
     public var lockPointerDuringDrag: Bool?
 

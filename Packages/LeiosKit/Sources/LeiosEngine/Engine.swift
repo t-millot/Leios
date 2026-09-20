@@ -14,6 +14,7 @@ public final class Engine {
         public var buttonTapEnabled = false
         public var dragTapEnabled = false
         public var flagsTapEnabled = false
+        public var statsTapEnabled = false
         public var pointerFrozen = false
         public init() {}
     }
@@ -117,6 +118,36 @@ public final class Engine {
     public func cancelButtonCapture() {
         guard started else { return }
         thread.perform { [self] in subsystems?.cancelButtonCapture() }
+    }
+
+    // MARK: Usage statistics (for the settings app)
+
+    /// Empties the engine's accumulator and writes `statistics.json` now, so the settings app can
+    /// show figures that are current rather than up to a flush interval stale. `completion` runs
+    /// once the file is on disk, on the statistics queue — or immediately when the engine is not
+    /// running, in which case there is nothing in flight to write.
+    public func flushStatistics(completion: @escaping @Sendable () -> Void) {
+        guard started else { completion(); return }
+        thread.perform { [self] in
+            guard let subsystems else { completion(); return }
+            subsystems.statsFlusher.flushNow(completion: completion)
+        }
+    }
+
+    /// Throws the recorded history away, including anything counted but not yet written. Works
+    /// whether or not the engine is running: the file outlives the process that wrote it.
+    public func resetStatistics(completion: @escaping @Sendable () -> Void) {
+        guard started else {
+            DispatchQueue.global(qos: .utility).async {
+                try? StatsFile.delete()
+                completion()
+            }
+            return
+        }
+        thread.perform { [self] in
+            guard let subsystems else { completion(); return }
+            subsystems.statsFlusher.reset(completion: completion)
+        }
     }
 
     /// Emergency cleanup usable from a signal handler path: restores the pointer even if `stop()` cannot run.

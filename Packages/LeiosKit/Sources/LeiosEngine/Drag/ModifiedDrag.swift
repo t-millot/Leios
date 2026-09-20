@@ -39,6 +39,15 @@ final class ModifiedDrag {
     /// Content follows the mouse movement (System Settings "natural scrolling").
     private(set) var naturalDirection = true
 
+    /// Set once by `EngineSubsystems`. Optional so the drag can be built without it in tests.
+    weak var stats: StatsRecorder?
+    /// Pointer path length and elapsed time of the drag in progress, for the statistics. Both are
+    /// accumulated in `handleWhileInUse` rather than derived from `originOffset`, which is a signed
+    /// sum and would report a there-and-back drag as having gone nowhere.
+    private var usagePathLength = 0.0
+    private var usageStartTime: CFTimeInterval = 0
+    private var usageLastTime: CFTimeInterval = 0
+
     var isArmed: Bool { activationState != .none }
 
     init(thread: EngineThread, modifiers: Modifiers) {
@@ -93,6 +102,14 @@ final class ModifiedDrag {
         if activationState == .none { return }
         if activationState == .inUse {
             output?.deactivate(drag: self, cancel: cancel)
+            // Inside this branch on purpose: `SwitchMaster.reevaluate()` calls `deactivate` on
+            // every modifier change, so an `.initialized` drag that never passed the threshold
+            // would otherwise be recorded as a gesture that ended without ever having started.
+            if let gesture {
+                stats?.recordDragEnd(gesture: gesture,
+                                     points: usagePathLength,
+                                     seconds: max(0, usageLastTime - usageStartTime))
+            }
         }
         activationState = .none
         tap?.enable(false)
@@ -139,17 +156,28 @@ final class ModifiedDrag {
             usageAxis = abs(ofs.x) < abs(ofs.y) ? .vertical : .horizontal
             activationState = .inUse
             firstCallback = true
+            usagePathLength = 0
+            usageStartTime = event.timestampSeconds
+            usageLastTime = usageStartTime
             if let natural = UserDefaults.standard.object(forKey: "com.apple.swipescrolldirection") as? Bool {
                 naturalDirection = natural
             } else {
                 naturalDirection = true
             }
             output?.becameInUse(drag: self)
+            if let gesture { stats?.recordDragStart(gesture: gesture) }
             modifiers.handleModificationHasBeenUsed()
         }
     }
 
     private func handleWhileInUse(dx: Double, dy: Double, event: CGEvent) {
+        // Mouse reports arrive here at up to 8 kHz, so this is the hottest line the statistics
+        // add anywhere: two multiplies and a square root, against a tap callback that already
+        // cost a mach round-trip. `squareRoot()` rather than `hypot`, which does overflow
+        // scaling that deltas this small never need.
+        usagePathLength += (dx * dx + dy * dy).squareRoot()
+        usageLastTime = event.timestampSeconds
+
         var dx = dx
         var dy = dy
         if !naturalDirection {

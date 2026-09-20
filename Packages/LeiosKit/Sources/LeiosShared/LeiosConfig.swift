@@ -257,10 +257,16 @@ public struct GeneralSettings: Codable, Equatable, Sendable {
     public var lockPointerDuringDrag: Bool = false
     public var scrollingEnabled: Bool = true
     public var buttonsEnabled: Bool = true
+    /// Whether the helper counts usage statistics. Lives here because the engine needs it, and
+    /// stays out of `SyncedConfig` for the reason the kill switches do: "stop counting *here*"
+    /// must not reach across and stop counting on the user's other Mac.
+    public var collectStatistics: Bool = true
 
     public init() {}
 
-    enum CodingKeys: String, CodingKey { case showMenuBarItem, lockPointerDuringDrag, scrollingEnabled, buttonsEnabled }
+    enum CodingKeys: String, CodingKey {
+        case showMenuBarItem, lockPointerDuringDrag, scrollingEnabled, buttonsEnabled, collectStatistics
+    }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -268,5 +274,6 @@ public struct GeneralSettings: Codable, Equatable, Sendable {
         lockPointerDuringDrag = try c.decodeIfPresent(Bool.self, forKey: .lockPointerDuringDrag) ?? false
         scrollingEnabled = try c.decodeIfPresent(Bool.self, forKey: .scrollingEnabled) ?? true
         buttonsEnabled = try c.decodeIfPresent(Bool.self, forKey: .buttonsEnabled) ?? true
+        collectStatistics = try c.decodeIfPresent(Bool.self, forKey: .collectStatistics) ?? true
     }
 }

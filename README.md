@@ -14,6 +14,12 @@ and the settings you don't change keep following the global ones. Turn on **Sync
 in General and your scrolling, buttons and per-app profiles follow your Apple Account to your other
 Macs; the kill switches and the menu bar item stay on the Mac you set them on.
 
+**Statistics** counts what the mouse has actually done — distance scrolled, wheel ticks, clicks by
+button, drag gestures, and every action the engine fired — over a week, a month, a year or the
+lifetime of the install. Counting costs nothing on the input path: the engine adds to a few integers
+and hands them to a background thread once a minute. It can be switched off, the history reset, and
+the figures from your other Macs added in or left out.
+
 Leios is a Swift port of the input engine of [Mac Mouse Fix](https://github.com/noah-nuebling/mac-mouse-fix)
 by Noah Nuebling. The engine (`Packages/LeiosKit/Sources/LeiosEngine`) is derived from the MMF source
 and is used under the [MMF License](https://github.com/noah-nuebling/mac-mouse-fix/blob/master/License).
@@ -41,7 +47,8 @@ before 1.0 beta 6 have no updater, so they need one manual download to reach it.
 ## Layout
 
 - `Leios/` — the SwiftUI settings app. Writes `~/Library/Application Support/Leios/config.json`,
-  enables and disables the helper through `SMAppService`, and shows its status.
+  enables and disables the helper through `SMAppService`, shows its status, and draws the usage
+  statistics the helper records to `Statistics/statistics.json` beside it.
 - `LeiosHelper/` — a background login item (`LSUIElement`) launched by launchd. It owns every
   `CGEventTap` and runs the engine. Needs Accessibility permission.
 - `Packages/LeiosKit/` — local Swift package:
@@ -123,6 +130,8 @@ entry.
 - One dedicated engine thread hosts every event tap, timer and display link, so the engine is single-threaded.
 - Config changes flow app → `config.json` → helper (file watcher + XPC `reloadConfig`).
 - Tap lifetimes are decided by `SwitchMaster`: unused input paths cost nothing.
+- Usage statistics are counted on the engine thread with plain integer adds and flushed to disk
+  from a background queue; the file is written by the helper and only read by the app.
 - Adding a button captures a press: the app arms the helper over XPC while the pointer is in the capture
   zone, and the helper swallows the next press and reports its number — which is what makes a button
   already consuming its own press capturable.

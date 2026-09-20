@@ -99,6 +99,25 @@ final class HelperClient {
         let proxy = makeConnection().remoteObjectProxyWithErrorHandler { _ in } as? LeiosHelperXPC
         proxy?.cancelButtonCapture()
     }
+
+    /// Asks the helper to write out what it has counted. Returns false when the helper is not
+    /// reachable, which is not an error: whatever is on disk is simply the last thing it wrote.
+    @discardableResult
+    func flushStatistics() async -> Bool {
+        // A touch longer than the default: this one waits on a file write, not on a lookup.
+        let ok: Bool? = await call(timeout: 4) { proxy, done in
+            proxy.flushStatistics { done($0) }
+        }
+        return ok ?? false
+    }
+
+    @discardableResult
+    func resetStatistics() async -> Bool {
+        let ok: Bool? = await call(timeout: 4) { proxy, done in
+            proxy.resetStatistics { done($0) }
+        }
+        return ok ?? false
+    }
 }
 
 /// Resumes a continuation at most once, from any thread.

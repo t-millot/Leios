@@ -119,6 +119,49 @@ merges the generated keys into. `CURRENT_PROJECT_VERSION` is what Sparkle orders
 is a build counter that only rises — `Scripts/release.sh` checks it against the live feed before
 it will publish.
 
+**Usage statistics are counted on the engine thread and written from another one.** Nothing on a
+hot path reads the clock, allocates or locks: `StatsRecorder`
+([Packages/LeiosKit/Sources/LeiosEngine/Stats/StatsRecorder.swift](Packages/LeiosKit/Sources/LeiosEngine/Stats/StatsRecorder.swift))
+is thread-confined and only ever adds to a `StatsTotals`, and `StatsFlusher` drains it once a
+minute onto a `.utility` queue that owns the archive and does every clock read, bucket decision,
+prune and file write. Four things hold it together. Raw input is counted by a **listen-only tap of
+its own** (`StatsTap`) rather than inside the scroll and button taps, because `SwitchMaster`
+disarms those whenever nothing is mapped — and that tap must be created **last** in
+`EngineSubsystems.start()`, since `.headInsertEventTap` puts the newest tap at the head and only
+from there does it see a scroll event before `ScrollController` swallows it. It sits at
+`.cghidEventTap`, upstream of everything the engine posts (all to `.cgSessionEventTap`), so Leios's
+own synthesized events are invisible to it. The flush tick also calls `switchMaster.reevaluate()`,
+which is the only thing that brings the tap back after macOS disables it on secure input
+(`EventTap` deliberately does not re-enable itself). And `Engine.stop()`'s flush is **synchronous**,
+because the helper may exit as soon as it returns.
+
+Two traps that already cost a debugging session each, both found by running the thing rather than
+by reading it. The `collectStatistics` switch is applied to **`StatsRecorder` as well as the tap**:
+scroll output, actions and drags are recorded from inside `ScrollController`, `Buttons` and
+`ModifiedDrag`, which keep running whatever the switch says, so gating the tap alone leaves half
+the counters live. And nothing on the teardown path may discard the recorder's batch —
+`SwitchMaster.disableAll()` runs immediately before the flusher's final write, so a `discard()`
+there silently loses every count of any session shorter than one flush interval. `discard()` now
+belongs to `reset` and to nothing else. The engine-side hooks are one line each and the
+obvious line is the wrong one in most of them — read the comment at each before moving it.
+
+The archive is `~/Library/Application Support/Leios/Statistics/statistics.json`, and the
+**subdirectory is load-bearing**: `ConfigStore` watches the config directory itself, so a sibling
+file would make the helper re-read `config.json` on its main thread on every flush. Its three tiers
+(hourly 30 days, daily a year, monthly forever) are maintained *independently* — every batch is
+added to all of them plus the lifetime totals — so maintenance is pruning alone and no tier can
+double-count another. Days and months are keyed by calendar date (`yyyyMMdd`, `yyyyMM`), not by an
+epoch offset, which is what makes DST and a timezone change non-events. Adding a counter means a
+field on `StatsCounters` (+ its `+=`, its zero-omitting coder, and a `decodeIfPresent` default) and
+somewhere in `StatsModel` to show it. Action tallies are keyed by `Action.statsKey`, which is
+**API**: it is written to disk and travels between Macs, so renaming one forks a lifetime series.
+
+Statistics sync per Mac rather than as one document, because counts are additive: each Mac writes
+only its own `LeiosStats` record and `StatsMerge` adds them up, so there is no last-writer-wins
+here at all. Peers are found through a roster record at a known name, deliberately not a `CKQuery`
+— a query needs an index deployed from the CloudKit dashboard, which record fields do not, and
+that would be a manual release step with no build-time signal.
+
 **Event timestamps are nanoseconds, not mach ticks.** `CGEvent.timestamp` is already in
 nanoseconds, so `EventUtility.timestampSeconds` divides by 1e9 and must *not* go through
 `mach_timebase_info` the way `mach_absolute_time()` does. On Intel the two were the same number

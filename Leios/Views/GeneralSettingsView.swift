@@ -32,12 +32,17 @@ struct GeneralSettingsView: View {
             }
             Section("iCloud") {
                 Toggle("Sync settings with iCloud", isOn: $model.syncEnabled)
+                Toggle("Include usage statistics", isOn: $model.statsSyncEnabled)
+                    .disabled(!model.syncEnabled)
                 Text(model.syncState.description)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 if case .noAccount = model.syncState {
                     Button("Open iCloud Settings…") { model.openICloudSettings() }
                 }
+                Text("With statistics included, the Statistics screen adds up every Mac signed in to this Apple Account. Turning it off withdraws this Mac's counts from iCloud.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             Section("Kill Switches") {
                 Toggle("Scrolling enabled", isOn: $model.config.general.scrollingEnabled)

@@ -12,4 +12,5 @@ enum Log {
     static let drag = Logger(subsystem: subsystem, category: "drag")
     static let touch = Logger(subsystem: subsystem, category: "touch")
     static let actions = Logger(subsystem: subsystem, category: "actions")
+    static let stats = Logger(subsystem: subsystem, category: "stats")
 }

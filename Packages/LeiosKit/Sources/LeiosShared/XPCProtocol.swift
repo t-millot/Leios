@@ -16,6 +16,11 @@ import Foundation
     func captureNextButton(timeout: Double, reply: @escaping (_ button: Int) -> Void)
     /// Ends an armed capture early; its pending reply arrives as `ButtonCapture.timedOut`.
     func cancelButtonCapture()
+    /// Writes the usage statistics counted so far to disk, so the settings app reads current
+    /// figures rather than ones up to a flush interval old. Replies once the file is written.
+    func flushStatistics(reply: @escaping (_ ok: Bool) -> Void)
+    /// Discards the recorded usage statistics, including anything counted but not yet written.
+    func resetStatistics(reply: @escaping (_ ok: Bool) -> Void)
 }
 
 /// Reply values of `captureNextButton`.

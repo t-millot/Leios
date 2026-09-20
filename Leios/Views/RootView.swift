@@ -12,6 +12,7 @@ enum SidebarItem: Hashable {
     case app(bundleID: String)
     case buttons
     case devices
+    case statistics
     case settings
 
     var title: String {
@@ -21,6 +22,7 @@ enum SidebarItem: Hashable {
         case .app(let bundleID): bundleID
         case .buttons: "Buttons"
         case .devices: "Devices"
+        case .statistics: "Statistics"
         case .settings: "Settings"
         }
     }
@@ -32,6 +34,7 @@ enum SidebarItem: Hashable {
         case .app: "app"
         case .buttons: "computermouse"
         case .devices: "cable.connector.horizontal"
+        case .statistics: "chart.bar.xaxis"
         case .settings: "gearshape"
         }
     }
@@ -82,6 +85,7 @@ struct RootView: View {
                 appsGroup
                 row(.buttons)
                 row(.devices)
+                row(.statistics)
                 row(.settings)
             }
         }
@@ -153,6 +157,7 @@ struct RootView: View {
             case .app(let bundleID): ScrollSettingsForm(source: ScrollFieldSource(model: model, bundleID: bundleID))
             case .buttons: ButtonsSettingsView()
             case .devices: DevicesSettingsView()
+            case .statistics: StatisticsView()
             case .settings: GeneralSettingsView()
             }
         }
@@ -228,7 +233,7 @@ struct RootView: View {
         return selection
     }
 
-    /// Delete only ever means a profile: the five fixed rows are the app's navigation.
+    /// Delete only ever means a profile: the fixed rows are the app's navigation.
     private func deleteSelectedApp() {
         guard case .app(let bundleID) = selection else { return }
         remove(bundleID)

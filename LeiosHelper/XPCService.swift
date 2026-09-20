@@ -90,14 +90,26 @@ final class XPCService: NSObject, NSXPCListenerDelegate, LeiosHelperXPC {
     func cancelButtonCapture() {
         engine.cancelButtonCapture()
     }
+
+    func flushStatistics(reply: @escaping (Bool) -> Void) {
+        // Same one-shot treatment as the capture reply: this one comes back from the statistics
+        // queue, and a reply block called twice tears the connection down.
+        let once = OneShotReply(reply)
+        engine.flushStatistics { once.call(true) }
+    }
+
+    func resetStatistics(reply: @escaping (Bool) -> Void) {
+        let once = OneShotReply(reply)
+        engine.resetStatistics { once.call(true) }
+    }
 }
 
 /// Calls an XPC reply block at most once, from any thread.
-private final class OneShotReply: @unchecked Sendable {
-    private var reply: ((Int) -> Void)?
+private final class OneShotReply<Value>: @unchecked Sendable {
+    private var reply: ((Value) -> Void)?
     private let lock = NSLock()
-    init(_ reply: @escaping (Int) -> Void) { self.reply = reply }
-    func call(_ value: Int) {
+    init(_ reply: @escaping (Value) -> Void) { self.reply = reply }
+    func call(_ value: Value) {
         lock.lock()
         let reply = self.reply
         self.reply = nil
