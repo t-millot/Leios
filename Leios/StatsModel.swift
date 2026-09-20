@@ -183,7 +183,12 @@ final class StatsModel {
         summary = buckets.isEmpty ? StatsTotals() : totalsInRange()
         buttonRows = summary.buttons
             .compactMap { key, counts in Int(key).map { StatsButtonRow(id: $0, counts: counts) } }
-            .sorted { $0.counts.clicks > $1.counts.clicks }
+            // By button number rather than by how often each was clicked. A button then keeps
+            // its row and its colour between the week and the year — and the chart's palette is
+            // only validated for neighbouring rows, which means nothing if the data decides who
+            // neighbours whom. The count is written at the end of every bar, so the ranking is
+            // still there to read.
+            .sorted { $0.id < $1.id }
         actionRows = summary.actions
             .map { StatsActionRow(id: $0.key, name: Action.displayName(forStatsKey: $0.key), count: $0.value) }
             .sorted { $0.count > $1.count }

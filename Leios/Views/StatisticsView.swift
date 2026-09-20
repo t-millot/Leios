@@ -2,6 +2,7 @@
 // Leios — what the mouse has done: distance scrolled, clicks, gestures, over time.
 
 import SwiftUI
+import AppKit
 import Charts
 import LeiosShared
 
@@ -208,15 +209,18 @@ struct StatisticsView: View {
         }
     }
 
+    /// A horizontal bar per category, plus the axis beneath them.
+    private static func rowsHeight(_ rows: Int) -> CGFloat { CGFloat(rows) * 28 + 24 }
+
     private var buttonsChart: some View {
-        ChartCard(accessibilityTitle: "Clicks by Button") {
+        ChartCard(accessibilityTitle: "Clicks by Button", plotHeight: Self.rowsHeight(stats.buttonRows.count)) {
             ChartCardTitle(title: "Clicks by Button", subtitle: overTheRange)
         } chart: {
             Chart(stats.buttonRows) { row in
                 BarMark(x: .value("Clicks", row.counts.clicks),
                         y: .value("Button", row.name))
                     .cornerRadius(4)
-                    .foregroundStyle(Self.primary)
+                    .foregroundStyle(Self.color(forButton: row.id))
                     .annotation(position: .trailing) {
                         Text(row.counts.clicks.formatted())
                             .font(.caption)
@@ -231,7 +235,6 @@ struct StatisticsView: View {
                     AxisValueLabel { axisNumber(value) }
                 }
             }
-            .frame(height: CGFloat(stats.buttonRows.count) * 28 + 24)
         }
     }
 
@@ -261,15 +264,21 @@ struct StatisticsView: View {
     }
 
     private var actionsChart: some View {
-        // Beyond eight, a ninth hue would be invented and a ninth row would be unreadable.
-        let top = Array(stats.actionRows.prefix(8))
-        return ChartCard(accessibilityTitle: "Actions") {
+        // Beyond eight, a ninth row would be unreadable and there is no ninth hue for it.
+        let top = Array(stats.actionRows.prefix(Self.categoricalHues.count))
+        return ChartCard(accessibilityTitle: "Actions", plotHeight: Self.rowsHeight(top.count)) {
             ChartCardTitle(title: "Actions", subtitle: overTheRange)
         } chart: {
-            Chart(top) { row in
+            // By position, which is the one chart here where colour does not follow the thing
+            // it draws. The rows are the eight most-used actions of however many Leios can fire,
+            // so eight hues could never name them — the label does that, and the hue is what
+            // keeps one bar from running into the next. Taking them in row order is also what
+            // keeps neighbouring bars to the pairs the palette is validated for, which the
+            // ranking would otherwise decide.
+            Chart(Array(top.enumerated()), id: \.element.id) { index, row in
                 BarMark(x: .value("Times", row.count), y: .value("Action", row.name))
                     .cornerRadius(4)
-                    .foregroundStyle(Self.primary)
+                    .foregroundStyle(Self.color(slot: index))
                     .annotation(position: .trailing) {
                         Text(row.count.formatted())
                             .font(.caption)
@@ -284,14 +293,13 @@ struct StatisticsView: View {
                     AxisValueLabel { axisNumber(value) }
                 }
             }
-            .frame(height: CGFloat(top.count) * 28 + 24)
         }
     }
 
     /// Only when there is more than one, because a chart of a single bar labelled with the name
     /// of the Mac you are sitting at says nothing.
     private var devicesChart: some View {
-        ChartCard(accessibilityTitle: "Macs") {
+        ChartCard(accessibilityTitle: "Macs", plotHeight: Self.rowsHeight(stats.merged.devices.count)) {
             ChartCardTitle(title: "Macs", subtitle: "Every Mac signed in to this Apple Account")
         } chart: {
             Chart(stats.merged.devices) { device in
@@ -313,7 +321,6 @@ struct StatisticsView: View {
                     AxisValueLabel { axisNumber(value) }
                 }
             }
-            .frame(height: CGFloat(stats.merged.devices.count) * 28 + 24)
         }
     }
 
@@ -359,6 +366,60 @@ struct StatisticsView: View {
     private static let secondary = Color(red: 0xD2 / 255, green: 0x76 / 255, blue: 0x0A / 255)
     private static let inputSeries = "From the wheel"
     private static let outputSeries = "Delivered"
+
+    /// The chart hues, in the reference categorical palette's own fixed order, with a
+    /// step per appearance — no single hex sits inside both the light and the dark readable band.
+    /// Validated as a set against the card's own surfaces (#FFFFFF light, #252525 dark): every
+    /// hue in band, worst neighbouring pair ΔE 19.6 light / 19.3 dark to normal vision and 9.1 /
+    /// 8.4 to a colour-blind reader.
+    ///
+    /// Neighbouring, which is why `StatsModel` orders the rows by button number: eight hues
+    /// cannot all be told apart from each other — orange and red are ΔE 7.1 — so the guarantee
+    /// only holds between rows that actually touch, and it would be worth nothing if the counts
+    /// decided which those were. Past the eighth the palette stops rather than inventing a ninth
+    /// hue or starting over: a mouse can report up to `LeiosConstants.maxButton`, and those rows
+    /// are grey. Every bar is named on the axis and carries its count, so grey costs nothing but
+    /// the grouping.
+    static let categoricalHues: [Color] = [
+        primary,                                   // 1 — the accent every other chart uses
+        hue(light: 0xEB6834, dark: 0xD95926),      // 2 — orange
+        hue(light: 0x1BAF7A, dark: 0x199E70),      // 3 — aqua
+        hue(light: 0xEDA100, dark: 0xC98500),      // 4 — yellow
+        hue(light: 0xE87BA4, dark: 0xD55181),      // 5 — magenta
+        hue(light: 0x008300, dark: 0x008300),      // 6 — green
+        hue(light: 0x4A3AA7, dark: 0x9085E9),      // 7 — violet
+        hue(light: 0xE34948, dark: 0xE66767),      // 8 — red
+    ]
+
+    /// Colour follows the button, never the bar's position, so the same button is the same colour
+    /// in the week and in the year and in a month where it went unused by someone else.
+    static func color(forButton button: Int) -> Color {
+        // Buttons are numbered from 1, as they are in the config and the engine — button 1 is the
+        // left one, which only this chart ever sees.
+        guard button >= 1, button <= categoricalHues.count else { return .secondary }
+        return categoricalHues[button - 1]
+    }
+
+    /// The hue for a row at a given position, for the charts whose rows are not a small dense
+    /// set of numbered things the way buttons are.
+    static func color(slot: Int) -> Color {
+        guard slot >= 0, slot < categoricalHues.count else { return .secondary }
+        return categoricalHues[slot]
+    }
+
+    /// A colour with a step per appearance, resolved by AppKit the way the system colours are.
+    private static func hue(light: UInt32, dark: UInt32) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? srgb(dark) : srgb(light)
+        })
+    }
+
+    private static func srgb(_ rgb: UInt32) -> NSColor {
+        NSColor(srgbRed: CGFloat((rgb >> 16) & 0xFF) / 255,
+                green: CGFloat((rgb >> 8) & 0xFF) / 255,
+                blue: CGFloat(rgb & 0xFF) / 255,
+                alpha: 1)
+    }
 
     @ChartContentBuilder
     private func pairedBar(_ point: StatsPoint, value: Double, name: String) -> some ChartContent {
@@ -485,13 +546,18 @@ private struct ChartCard<Header: View, Plot: View>: View {
     /// What VoiceOver calls the plot. The header may be a control rather than a label, so the
     /// name is passed separately rather than read off it.
     let accessibilityTitle: String
+    /// How tall the plot is drawn. The default is the floor a time-series chart needs — Swift
+    /// Charts collapses one to nothing without it. A chart that is a list of rows knows its own
+    /// height and passes it, because the floor would otherwise centre a short list in 180 points
+    /// and surround it with empty card.
+    var plotHeight: CGFloat = 180
     @ViewBuilder let header: Header
     @ViewBuilder let chart: Plot
 
     var body: some View {
         GroupBox {
             chart
-                .frame(minHeight: 180)
+                .frame(height: plotHeight)
                 .padding(.top, 4)
                 // Marks are invisible to VoiceOver on their own, and the run-leios skill drives
                 // this window entirely over the accessibility API.
