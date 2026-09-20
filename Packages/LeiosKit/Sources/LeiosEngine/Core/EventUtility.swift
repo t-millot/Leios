@@ -20,9 +20,18 @@ extension CGEvent {
     @inline(__always) func getInt(_ field: UInt32) -> Int64 {
         getIntegerValueField(CGEventField(rawValue: field)!)
     }
-    /// Timestamp in seconds (mach time base).
+    /// Timestamp in seconds since boot, on the same clock as `CACurrentMediaTime()`.
+    ///
+    /// `CGEventTimestamp` is **nanoseconds**, not mach ticks, so it must not go through
+    /// `mach_timebase_info` the way `mach_absolute_time()` does. On Intel the two were the same
+    /// number — the timebase is 1/1 there — which is why Mac Mouse Fix could convert it as a mach
+    /// time and why the mistake survives being ported. On Apple silicon the timebase is 125/3, so
+    /// converting it inflated every interval the engine measures by about 42×: no scroll tick was
+    /// ever within `consecutiveScrollTickIntervalMax` of the one before it, so acceleration sat at
+    /// its floor, fast scroll never engaged, and `ScrollController` re-resolved the app under the
+    /// pointer on every tick instead of once per sequence.
     var timestampSeconds: CFTimeInterval {
-        LeiosMachTimeToSeconds(timestamp)
+        CFTimeInterval(timestamp) / 1e9
     }
     var senderID: UInt64 {
         UInt64(bitPattern: getInt(kLeiosCGEventFieldSenderID))

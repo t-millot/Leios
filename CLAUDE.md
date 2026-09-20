@@ -119,6 +119,17 @@ merges the generated keys into. `CURRENT_PROJECT_VERSION` is what Sparkle orders
 is a build counter that only rises — `Scripts/release.sh` checks it against the live feed before
 it will publish.
 
+**Event timestamps are nanoseconds, not mach ticks.** `CGEvent.timestamp` is already in
+nanoseconds, so `EventUtility.timestampSeconds` divides by 1e9 and must *not* go through
+`mach_timebase_info` the way `mach_absolute_time()` does. On Intel the two were the same number
+(the timebase is 1/1 there), which is why Mac Mouse Fix converts it as a mach time and why the
+mistake survived the port unnoticed. On Apple silicon the timebase is 125/3, so every interval the
+engine measured came out about 42× too long: no scroll tick was ever within
+`consecutiveScrollTickIntervalMax` of the one before it, so `ScrollAnalyzer` treated every tick as
+a new sequence, acceleration sat at its floor, fast scroll never engaged, and `ScrollController`
+re-resolved the app under the pointer on every tick instead of once per sequence — the exact
+per-tick lookup the `sequenceGap` design exists to avoid.
+
 **XPC is helper-hosted, not an XPC service.** The helper is a launchd agent (`SupportFiles/com.tmillot.Leios.Helper.plist`, `MachServices`), registered by the app through `SMAppService.agent(plistName:)`. `XPCService` rejects connections whose code-signing team doesn't match its own — with a `#if DEBUG` escape hatch for unsigned local builds, so a Release build without a signing team on **both** targets silently refuses to talk to its own app.
 
 **Button capture** is why `ButtonInputReceiver` has a mode where the button tap runs with nothing mapped: the settings app arms `captureNextButton` over XPC while the pointer is inside `ButtonCaptureZone`, the helper swallows the next press (and its release) and replies with the number. That is what makes an already-assigned button capturable. `SwitchMaster` keeps the tap alive for the duration via `buttons.isCapturing`, ignoring the buttons kill switch.
