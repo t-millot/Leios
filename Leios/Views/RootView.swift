@@ -264,6 +264,7 @@ struct RootView: View {
         if !model.configIsReadable { return true }
         if model.lastError != nil { return true }
         if model.helperState == .requiresApproval { return true }
+        if model.helperIsUnreachable { return true }
         if case .running(let ax) = model.helperState, !ax { return true }
         return false
     }
@@ -287,6 +288,14 @@ struct RootView: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
                 Button("Open Login Items Settings…") { model.openLoginItemsSettings() }
+            }
+            // Named rather than left to the sidebar caption, which reads as "still starting" and so
+            // says nothing at all once the helper is never going to answer.
+            if model.helperIsUnreachable {
+                Text("Leios is on, but its background helper is not responding, so nothing is being remapped. This usually follows installing a different version over the app.")
+                    .font(.callout)
+                    .foregroundStyle(.red)
+                Button("Restart the Helper") { model.reregisterHelper() }
             }
             if case .running(let ax) = model.helperState, !ax {
                 AccessibilityBanner()

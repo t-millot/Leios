@@ -83,6 +83,12 @@ final class AppModel {
     private var pollTask: Task<Void, Never>?
     /// Guards the stale-helper restart in `refresh()`, which polls every 2 s.
     private var didRestartStaleHelper = false
+    /// Consecutive polls in which the helper was registered but did not answer.
+    private var unreachablePolls = 0
+    /// Guards `recoverUnreachableHelper()`: a registration that does not take must not become a loop.
+    private var didRecoverHelper = false
+    /// Two seconds a poll, so this is roughly six seconds of silence before the app calls it broken.
+    private static let unreachablePollsBeforeRepair = 3
 
     private var sync: CloudSync?
     /// The payload this Mac last agreed with the server. Also the upload suppressor: after a
@@ -447,12 +453,51 @@ final class AppModel {
             helperState = .notFound
         case .enabled:
             if let status = await client.getStatus() {
+                unreachablePolls = 0
                 helperState = .running(accessibility: status.accessibilityTrusted)
                 restartHelperIfStale(reportedVersion: status.bundleVersion)
             } else {
                 helperState = .enabledNotRunning
+                unreachablePolls += 1
+                recoverUnreachableHelper()
             }
         }
+    }
+
+    /// Whether the helper has been registered but silent for long enough to call it broken rather
+    /// than still starting. Drives the banner, so the failure says so instead of sitting in a
+    /// caption that reads like a progress message.
+    var helperIsUnreachable: Bool {
+        helperState == .enabledNotRunning && unreachablePolls >= Self.unreachablePollsBeforeRepair
+    }
+
+    /// Re-registers a helper that is registered but never answers.
+    ///
+    /// Replacing the app bundle — a drag-install over the top, or installing an older build —
+    /// leaves launchd holding a registration pinned to the bundle that used to be there, and macOS
+    /// kills the new executable for a launch constraint violation before it can open its XPC
+    /// listener. `restartHelperIfStale` cannot reach this: it compares the build number the helper
+    /// reports, so it only ever runs for a helper alive enough to answer. This is the same repair
+    /// for the case where there is nothing left to ask.
+    private func recoverUnreachableHelper() {
+        // A helper that is merely still launching answers within a poll or two; this waits it out.
+        guard unreachablePolls >= Self.unreachablePollsBeforeRepair, !didRecoverHelper else { return }
+        didRecoverHelper = true
+        log.notice("Helper is registered but not answering — re-registering it")
+        reregisterHelper()
+    }
+
+    /// Unregister-and-register, which is what makes launchd drop a pinned registration and pick the
+    /// executable in the bundle that is actually there now.
+    func reregisterHelper() {
+        do {
+            try installer.register()
+            lastError = nil
+        } catch {
+            lastError = "Could not restart the helper: \(error.localizedDescription)"
+        }
+        client.invalidate()
+        Task { await refresh() }
     }
 
     /// Catches a helper left over from a bundle that has since been replaced — by an update whose
