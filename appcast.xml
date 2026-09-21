@@ -22,6 +22,16 @@
         <language>en</language>
         <!-- NEW ITEMS GO BELOW THIS LINE -->
         <item>
+            <title>1.0 beta 11</title>
+            <pubDate>Mon, 21 Sep 2026 09:43:57 +0000</pubDate>
+            <sparkle:version>11</sparkle:version>
+            <sparkle:shortVersionString>1.0 beta 11</sparkle:shortVersionString>
+            <sparkle:channel>beta</sparkle:channel>
+            <sparkle:minimumSystemVersion>27.0</sparkle:minimumSystemVersion>
+            <sparkle:releaseNotesLink>https://github.com/t-millot/Leios/releases/tag/v1.0-beta.11</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/t-millot/Leios/releases/download/v1.0-beta.11/Leios-1.0-beta-11.zip" type="application/octet-stream" sparkle:edSignature="rVm97kduCEqanuXZPdpvpMH3sZeGLXPPZGhjdVhqprIlNCJh6pvFeoC5sJ0/VqcoZkQjLI5O2Oa0pXqFwG9aCQ==" length="3524940" />
+        </item>
+        <item>
             <title>1.0 beta 10</title>
             <pubDate>Mon, 21 Sep 2026 08:39:07 +0000</pubDate>
             <sparkle:version>10</sparkle:version>
