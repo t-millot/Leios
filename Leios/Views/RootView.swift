@@ -169,19 +169,18 @@ struct RootView: View {
     /// names what is under it rather than repeating the app's own name on every screen.
     private var detailTitle: String {
         if case .app(let bundleID) = resolvedSelection {
-            let name = AppProfiles.name(bundleID, in: model.config.apps)
-            // A profile whose app isn't here is what iCloud sync hands every other Mac, so the
-            // window says so beside the name — the dimmed icon alone doesn't explain itself.
-            guard !AppCatalog.isInstalled(bundleID) else { return name }
-            return "\(name) (\(AppProfiles.notInstalledNote))"
+            return AppProfiles.name(bundleID, in: model.config.apps)
         }
         return resolvedSelection.title
     }
 
-    /// Only an app profile has one: the bundle ID, which is the one thing its name does not say.
+    /// Only an app profile has one: the bundle ID, which is the one thing its name does not say —
+    /// and, when the app isn't here, that it isn't. A profile whose app is missing is what iCloud
+    /// sync hands every other Mac, so it is a note about this machine rather than a problem with
+    /// the profile, and it reads as one in the subtitle's grey next to the name in full black.
     private var detailSubtitle: String {
-        if case .app(let bundleID) = resolvedSelection { return bundleID }
-        return ""
+        guard case .app(let bundleID) = resolvedSelection else { return "" }
+        return AppProfiles.identifierLine(bundleID)
     }
 
     /// An app profile names itself here rather than in a strip below: two rows of chrome, one of
@@ -197,7 +196,7 @@ struct RootView: View {
                 // grid, and it is the artwork that has to stand as tall as the two lines of
                 // text beside it.
                 AppIcon(bundleID: bundleID, size: 29)
-                    .help(AppProfiles.tooltip(bundleID))
+                    .help(AppProfiles.identifierLine(bundleID))
                     .accessibilityHidden(true)
                     // Toolbar items are spaced from each other as controls, which left 18pt
                     // between the icon and the title it belongs to. This closes it to 11.

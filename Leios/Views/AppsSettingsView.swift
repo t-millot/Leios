@@ -25,9 +25,10 @@ enum AppProfiles {
     /// note about the machine rather than as something wrong with the profile.
     static let notInstalledNote = "not installed on this computer"
 
-    /// The tooltip for a profile's name or icon: the bundle ID, which is the one thing the name
-    /// does not say, plus why it is drawn dimmed when it is.
-    static func tooltip(_ bundleID: String) -> String {
+    /// The bundle ID, which is the one thing a profile's name does not say, plus the note when
+    /// the app isn't here. The window subtitle and the sidebar and toolbar tooltips all show it,
+    /// so a profile says the same thing about itself wherever it is read.
+    static func identifierLine(_ bundleID: String) -> String {
         AppCatalog.isInstalled(bundleID) ? bundleID : "\(bundleID) — \(notInstalledNote)"
     }
 }
@@ -74,7 +75,7 @@ struct AppSidebarRow: View {
         } icon: {
             AppIcon(bundleID: bundleID, size: 16)
         }
-        .help(AppProfiles.tooltip(bundleID))
+        .help(AppProfiles.identifierLine(bundleID))
     }
 }
 
