@@ -32,7 +32,9 @@ enum AppCatalog {
         return FileManager.default.displayName(atPath: url.path)
     }
 
-    /// The app's icon, falling back to a generic one for apps that are no longer installed.
+    /// The app's icon. An app that isn't on this Mac is drawn by `AppIcon` rather than here — the
+    /// generic icon LaunchServices falls back to is a blank sheet of paper — so the fallback is
+    /// only a safety net for a bundle that disappears between the two calls.
     static func icon(forBundleID bundleID: String) -> NSImage {
         if let cached = icons[bundleID] { return cached }
         let icon: NSImage

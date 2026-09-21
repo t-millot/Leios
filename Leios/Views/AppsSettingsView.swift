@@ -19,6 +19,43 @@ enum AppProfiles {
     static func name(_ bundleID: String, in apps: [String: AppProfile]) -> String {
         AppCatalog.displayName(forBundleID: bundleID) ?? apps[bundleID]?.name ?? bundleID
     }
+
+    /// Said the same way everywhere it is said: a profile for an app that isn't on this Mac is a
+    /// normal thing to have — iCloud sync brings one over from every other Mac — so it reads as a
+    /// note about the machine rather than as something wrong with the profile.
+    static let notInstalledNote = "not installed on this computer"
+
+    /// The tooltip for a profile's name or icon: the bundle ID, which is the one thing the name
+    /// does not say, plus why it is drawn dimmed when it is.
+    static func tooltip(_ bundleID: String) -> String {
+        AppCatalog.isInstalled(bundleID) ? bundleID : "\(bundleID) — \(notInstalledNote)"
+    }
+}
+
+/// A profile's icon in a `size × size` box. An app that isn't on this Mac gets a dashed outline:
+/// LaunchServices answers an unknown bundle ID with the generic application icon, which is a
+/// blank sheet of paper and reads as a broken icon rather than as an app that isn't here.
+struct AppIcon: View {
+    let bundleID: String
+    let size: CGFloat
+
+    var body: some View {
+        if AppCatalog.isInstalled(bundleID) {
+            Image(nsImage: AppCatalog.icon(forBundleID: bundleID))
+                .resizable()
+                .frame(width: size, height: size)
+        } else {
+            Image(systemName: "questionmark.app.dashed")
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(.secondary)
+                // Inset to the size a real icon's artwork draws at inside the same box: an app
+                // icon carries the transparent bleed of the macOS icon grid and a symbol does
+                // not, so equal frames would leave the placeholder the larger of the two.
+                .padding(size * 0.08)
+                .frame(width: size, height: size)
+        }
+    }
 }
 
 // MARK: - Sidebar
@@ -35,12 +72,9 @@ struct AppSidebarRow: View {
                 .lineLimit(1)
                 .opacity(installed ? 1 : 0.6)
         } icon: {
-            Image(nsImage: AppCatalog.icon(forBundleID: bundleID))
-                .resizable()
-                .frame(width: 16, height: 16)
-                .opacity(installed ? 1 : 0.6)
+            AppIcon(bundleID: bundleID, size: 16)
         }
-        .help(installed ? bundleID : "\(bundleID) — not installed")
+        .help(AppProfiles.tooltip(bundleID))
     }
 }
 

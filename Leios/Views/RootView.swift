@@ -169,7 +169,11 @@ struct RootView: View {
     /// names what is under it rather than repeating the app's own name on every screen.
     private var detailTitle: String {
         if case .app(let bundleID) = resolvedSelection {
-            return AppProfiles.name(bundleID, in: model.config.apps)
+            let name = AppProfiles.name(bundleID, in: model.config.apps)
+            // A profile whose app isn't here is what iCloud sync hands every other Mac, so the
+            // window says so beside the name — the dimmed icon alone doesn't explain itself.
+            guard !AppCatalog.isInstalled(bundleID) else { return name }
+            return "\(name) (\(AppProfiles.notInstalledNote))"
         }
         return resolvedSelection.title
     }
@@ -189,14 +193,11 @@ struct RootView: View {
             // subtitle, so they come out in the same type as every other screen's title instead
             // of in a hand-sized copy of it.
             ToolbarItem(placement: .navigation) {
-                Image(nsImage: AppCatalog.icon(forBundleID: bundleID))
-                    .resizable()
-                    // 29 to draw 25: an app icon carries the transparent bleed of the macOS icon
-                    // grid, and it is the artwork that has to stand as tall as the two lines of
-                    // text beside it.
-                    .frame(width: 29, height: 29)
-                    .opacity(AppCatalog.isInstalled(bundleID) ? 1 : 0.6)
-                    .help(AppCatalog.isInstalled(bundleID) ? bundleID : "\(bundleID) — not installed")
+                // 29 to draw 25: an app icon carries the transparent bleed of the macOS icon
+                // grid, and it is the artwork that has to stand as tall as the two lines of
+                // text beside it.
+                AppIcon(bundleID: bundleID, size: 29)
+                    .help(AppProfiles.tooltip(bundleID))
                     .accessibilityHidden(true)
                     // Toolbar items are spaced from each other as controls, which left 18pt
                     // between the icon and the title it belongs to. This closes it to 11.
