@@ -427,8 +427,16 @@ final class AppModel {
         client.cancelButtonCapture()
     }
 
+    /// Opens the settings pane, and does nothing else.
+    ///
+    /// This used to also ask the helper to call `AXIsProcessTrustedWithOptions(prompt: true)`, which
+    /// put the system's own "would like to control this Mac" dialog on screen at the same moment —
+    /// and that dialog's only offers are Deny and a second route to the pane already opening behind
+    /// it. The prompt was never what listed the helper: `AccessibilityMonitor.startMonitoring()`
+    /// registers it at launch with a *non*-prompting check, so by the time this button can be seen
+    /// the row is already there and waiting for its toggle. The prompt also fires at most once per
+    /// process launch, so on the second press the button quietly behaved differently.
     func openAccessibilitySettings() {
-        client.requestAccessibility()
         NSWorkspace.shared.open(LeiosConstants.accessibilitySettingsURL)
     }
 

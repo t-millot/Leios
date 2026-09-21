@@ -8,8 +8,6 @@ import Foundation
     func getStatus(reply: @escaping (_ bundleVersion: String, _ accessibilityTrusted: Bool, _ engineRunning: Bool) -> Void)
     /// Asks the helper to re-read config.json.
     func reloadConfig(reply: @escaping (_ ok: Bool) -> Void)
-    /// Asks the helper to open the Accessibility pane (and register itself in the list by prompting).
-    func requestAccessibility()
     /// Swallows the next mouse-button press so the app can add that button, even when the button
     /// already has an assignment and would otherwise be consumed by the engine.
     /// Replies exactly once, with the button number (3…32), `ButtonCapture.timedOut` or `.unavailable`.

@@ -12,15 +12,21 @@ final class AccessibilityMonitor {
     var onRevoked: (() -> Void)?
     private var timer: Timer?
 
-    static func check(prompt: Bool = false) -> Bool {
+    /// Never prompts, deliberately. The prompting form puts the system's "would like to control
+    /// this Mac" dialog on screen, which fires at most once per process launch and offers nothing
+    /// the banner's button does not do better — and it is the call, not the dialog, that lists the
+    /// helper in System Settings. Asking without the prompt is what leaves the app in charge of
+    /// when the pane opens.
+    static func check() -> Bool {
         let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
-        let options = [key: prompt] as CFDictionary
+        let options = [key: false] as CFDictionary
         return AXIsProcessTrustedWithOptions(options)
     }
 
     func startMonitoring() {
-        // The first call registers the helper in System Settings → Accessibility.
-        isTrusted = AccessibilityMonitor.check(prompt: false)
+        // The first call is what registers the helper in System Settings → Privacy & Security →
+        // Device Control and Data Access, so its row is there before the user goes looking.
+        isTrusted = AccessibilityMonitor.check()
         if isTrusted {
             onTrusted?()
         } else {
@@ -34,21 +40,9 @@ final class AccessibilityMonitor {
     }
 
     private func poll() {
-        let trusted = AccessibilityMonitor.check(prompt: false)
+        let trusted = AccessibilityMonitor.check()
         guard trusted != isTrusted else { return }
         isTrusted = trusted
         if trusted { onTrusted?() } else { onRevoked?() }
     }
-
-    /// Prompts the system dialog (only works once per process launch) and opens the settings pane.
-    func requestPermission() {
-        _ = AccessibilityMonitor.check(prompt: true)
-        NSWorkspace.shared.open(LeiosConstantsBridge.accessibilitySettingsURL)
-    }
-}
-
-import LeiosShared
-
-enum LeiosConstantsBridge {
-    static var accessibilitySettingsURL: URL { LeiosConstants.accessibilitySettingsURL }
 }

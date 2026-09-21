@@ -73,12 +73,6 @@ final class XPCService: NSObject, NSXPCListenerDelegate, LeiosHelperXPC {
         }
     }
 
-    func requestAccessibility() {
-        Task { @MainActor in
-            self.accessibility.requestPermission()
-        }
-    }
-
     func captureNextButton(timeout: Double, reply: @escaping (Int) -> Void) {
         let bounded = min(max(timeout, 1), ButtonCapture.maxTimeout)
         // The reply block crosses to the engine thread, and calling it twice would tear the

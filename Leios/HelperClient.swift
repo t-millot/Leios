@@ -77,11 +77,6 @@ final class HelperClient {
         return ok ?? false
     }
 
-    func requestAccessibility() {
-        let proxy = makeConnection().remoteObjectProxyWithErrorHandler { _ in } as? LeiosHelperXPC
-        proxy?.requestAccessibility()
-    }
-
     /// Arms the helper to swallow the next mouse-button press and report which button it was.
     /// Suspends until a button is pressed or `timeout` elapses.
     func captureNextButton(timeout: TimeInterval) async -> ButtonCaptureOutcome {
