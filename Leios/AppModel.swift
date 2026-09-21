@@ -22,7 +22,7 @@ enum HelperState: Equatable {
         // One clause rather than two sentences, so it ends the way the others do.
         case .notFound: return "Helper not found inside the app bundle — rebuild the app"
         case .enabledNotRunning: return "Helper is enabled but not responding yet…"
-        case .running(let ax): return ax ? "Running" : "Running, but Accessibility permission is missing"
+        case .running(let ax): return ax ? "Running" : "Running, without Device Control and Data Access"
         }
     }
 }

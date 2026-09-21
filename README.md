@@ -32,7 +32,8 @@ Requires macOS 27 or later on Apple silicon.
 1. Download `Leios-<version>.dmg` from [Releases](https://github.com/t-millot/Leios/releases) and drag
    **Leios** to Applications.
 2. Open it and turn on **Enable**.
-3. Grant Accessibility to **LeiosHelper** in System Settings → Privacy & Security → Accessibility.
+3. Turn on **LeiosHelper** in System Settings → Privacy & Security → Device Control and Data Access
+   (called Accessibility before macOS 27; the TCC service is still `kTCCServiceAccessibility`).
    The engine starts as soon as permission is granted.
 
 The app and its embedded helper are both signed with a Developer ID and notarized, so there is no
@@ -50,7 +51,7 @@ before 1.0 beta 6 have no updater, so they need one manual download to reach it.
   enables and disables the helper through `SMAppService`, shows its status, and draws the usage
   statistics the helper records to `Statistics/statistics.json` beside it.
 - `LeiosHelper/` — a background login item (`LSUIElement`) launched by launchd. It owns every
-  `CGEventTap` and runs the engine. Needs Accessibility permission.
+  `CGEventTap` and runs the engine. Needs Device Control and Data Access.
 - `Packages/LeiosKit/` — local Swift package:
   - `LeiosShared` — config model, constants, XPC protocol.
   - `LeiosEngine` — the **Engine**: scrolling (`Scroll/`), buttons (`Buttons/`), drag gestures (`Drag/`),
@@ -62,7 +63,7 @@ before 1.0 beta 6 have no updater, so they need one manual download to reach it.
 
 Open `Leios.xcodeproj` in Xcode 27, set your Development Team on **both** targets, and run the `Leios`
 scheme; the helper is built automatically and embedded at
-`Leios.app/Contents/Library/LoginItems/LeiosHelper.app`. Then enable it and grant Accessibility as above.
+`Leios.app/Contents/Library/LoginItems/LeiosHelper.app`. Then enable it and grant the permission as above.
 A stable signing identity keeps that permission across rebuilds; after changing the bundle identifier or
 switching identities, clear the stale grant with `tccutil reset Accessibility com.tmillot.Leios.Helper`.
 

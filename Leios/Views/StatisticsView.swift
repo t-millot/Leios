@@ -85,7 +85,7 @@ struct StatisticsView: View {
         case .running(let accessible):
             return accessible
                 ? "Use your mouse for a while and the figures will appear here."
-                : "Leios needs Accessibility permission before it can see your mouse."
+                : "Leios needs Device Control and Data Access before it can see your mouse."
         default:
             return "Leios is turned off, so nothing is being counted. Turn it on and the figures will start."
         }
