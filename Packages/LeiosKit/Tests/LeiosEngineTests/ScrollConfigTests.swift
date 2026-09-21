@@ -33,6 +33,26 @@ final class ScrollConfigTests: XCTestCase {
         XCTAssertEqual(cfg.fastScrollCurve?.t, 6)
     }
 
+    /// "Precise" has to hold for the whole scroll, not just its first tick. It used to lower only
+    /// the floor of the curve, and a wheel reaches the ceiling within a tick or two, so every tick
+    /// after the first was identical with the setting on or off — the toggle read as doing nothing.
+    func testPreciseLowersBothEndsOfTheCurve() {
+        let plain = resolver(smoothness: .high, speed: .medium)
+            .resolve(modifiers: ScrollModificationResult(), inputAxis: .vertical, display: CGMainDisplayID()).accelerationCurve!
+        let precise = resolver(smoothness: .high, speed: .medium, precise: true)
+            .resolve(modifiers: ScrollModificationResult(), inputAxis: .vertical, display: CGMainDisplayID()).accelerationCurve!
+
+        // Floor: the slowest tick the curve is defined for.
+        XCTAssertEqual(precise.evaluate(at: 1), 10, accuracy: 0.01)
+        XCTAssertLessThan(precise.evaluate(at: 1), plain.evaluate(at: 1))
+
+        // Ceiling: where a real wheel spends the rest of the scroll.
+        let top = 1 / 0.015
+        XCTAssertEqual(precise.evaluate(at: top),
+                       plain.evaluate(at: top) * ScrollConfig.preciseMaxSensitivityFactor,
+                       accuracy: 1.0)
+    }
+
     func testSystemSpeedUsesAppleAcceleration() {
         let r = resolver(smoothness: .high, speed: .system)
         let cfg = r.resolve(modifiers: ScrollModificationResult(), inputAxis: .vertical, display: CGMainDisplayID())

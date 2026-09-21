@@ -214,6 +214,10 @@ final class ScrollConfig {
 
     // MARK: Acceleration curve
 
+    /// How far "Precise" pulls the top of the sensitivity range down, on top of dropping its floor
+    /// to 10. Tuned by feel, like the tables above.
+    static let preciseMaxSensitivityFactor = 0.5
+
     /// Sensitivity (px per tick) as a function of tick speed (ticks per second).
     static func accelerationCurve(speed speedArg: ScrollSettings.Speed, precise: Bool, smoothness: ScrollSettings.Smoothness, animationCurve: ScrollAnimationCurveName, inputAxis: MFAxis, display: CGDirectDisplayID, scaleToDisplay: Bool, modifiers: ScrollModificationResult, useQuickModSpeed: Bool, usePreciseModSpeed: Bool, consecutiveScrollTickIntervalMax: Double, consecutiveScrollTickInterval_AccelerationEnd: Double) -> Curve {
 
@@ -272,8 +276,15 @@ final class ScrollConfig {
                 : CombinedLinearCurve(yValues: [1.5, 1.25, 0.75]).evaluate(atX: speed_n)
         }
 
+        // Deviation from MMF, which only drops the floor here. The acceleration curve leaves that
+        // floor behind within a tick or two, and a real wheel ticks fast enough to sit at `maxSens`
+        // for the rest of the scroll — so every tick but the very first came out identical whether
+        // the setting was on or off, which reads as the toggle doing nothing. Pull the ceiling down
+        // with the floor so it stays in effect for the whole scroll. Half keeps it clearly milder
+        // than the precise *modifier*, which caps at 20 and stays the fine-grained option.
         if precise {
             minSens = 10
+            maxSens *= preciseMaxSensitivityFactor
         }
 
         if scaleToDisplay {
