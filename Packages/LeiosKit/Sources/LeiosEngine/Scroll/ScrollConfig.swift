@@ -22,8 +22,11 @@ enum ScrollAnimationCurveName: Hashable {
 
 /// Storage for animation-curve parameters (`MFScrollAnimationCurveParameters`).
 struct AnimationCurveParameters {
-    /// Base curve. Nil → a speed-smoothing curve is synthesized from `speedSmoothing`.
-    let baseCurve: Bezier?
+    let baseCurve: Bezier
+    /// How much of the base duration a tick that arrives while the content is still moving spends
+    /// easing from that speed into its own, instead of jumping to it; 0 for none. See
+    /// `ScrollController.speedMatchingCurve`. Leios's own: Mac Mouse Fix's field of this name
+    /// synthesized a different curve, and every shipped entry set it to zero.
     let speedSmoothing: Double
     /// Duration of the base curve in ms, or -1 to use `baseMsPerStepCurve`.
     let baseMsPerStep: Int
@@ -38,9 +41,10 @@ struct AnimationCurveParameters {
     let sendMomentumScrolls: Bool
 
     /// Hybrid (base + drag) curve.
-    init(baseCurve: Bezier?, speedSmoothing: Double, baseMsPerStep: Int, baseMsPerStepCurve: Curve?, dragExponent: Double, dragCoefficient: Double, stopSpeed: Double, sendGestureScrolls: Bool, sendMomentumScrolls: Bool) {
+    init(baseCurve: Bezier, speedSmoothing: Double = 0, baseMsPerStep: Int, baseMsPerStepCurve: Curve?, dragExponent: Double, dragCoefficient: Double, stopSpeed: Double, sendGestureScrolls: Bool, sendMomentumScrolls: Bool) {
         if sendMomentumScrolls { assert(sendGestureScrolls) }
-        assert((baseCurve == nil) != (speedSmoothing == -1))
+        // The speed-matching curve's control points sit at the ramp and twice it.
+        assert(0 <= speedSmoothing && speedSmoothing <= 0.5)
         assert((baseMsPerStep == -1) != (baseMsPerStepCurve == nil))
         self.baseCurve = baseCurve
         self.speedSmoothing = speedSmoothing
@@ -55,11 +59,10 @@ struct AnimationCurveParameters {
     }
 
     /// Base curve only.
-    init(justBaseCurve baseCurve: Bezier?, speedSmoothing: Double, baseMsPerStep: Int, baseMsPerStepCurve: Curve?, sendGestureScrolls: Bool) {
-        assert((baseCurve == nil) != (speedSmoothing == -1))
+    init(justBaseCurve baseCurve: Bezier, baseMsPerStep: Int, baseMsPerStepCurve: Curve?, sendGestureScrolls: Bool) {
         assert((baseMsPerStep == -1) != (baseMsPerStepCurve == nil))
         self.baseCurve = baseCurve
-        self.speedSmoothing = speedSmoothing
+        self.speedSmoothing = 0
         self.baseMsPerStep = baseMsPerStep
         self.baseMsPerStepCurve = baseMsPerStepCurve
         self.useDragCurve = false
@@ -194,21 +197,29 @@ final class ScrollConfig {
             let e1: RawCurve = { x in exp(x * curvature) - 1 }
             let e2: RawCurve = { x in e1(x) / e1(1) }
             let e3 = CurveTools.transformCurve(e2) { y in Math.scale(y, (0, 1), (baseMsPerStepCurveMax, baseMsPerStepCurveMin)) }
-            return AnimationCurveParameters(baseCurve: linearCurve, speedSmoothing: -1, baseMsPerStep: -1, baseMsPerStepCurve: Curve(rawCurve: e3), dragExponent: 1.0, dragCoefficient: 23, stopSpeed: 30, sendGestureScrolls: false, sendMomentumScrolls: false)
+            return AnimationCurveParameters(baseCurve: linearCurve, baseMsPerStep: -1, baseMsPerStepCurve: Curve(rawCurve: e3), dragExponent: 1.0, dragCoefficient: 23, stopSpeed: 30, sendGestureScrolls: false, sendMomentumScrolls: false)
         case .highInertia:
             // The snappiest drag curve that can still be used to send momentum scrolls.
-            return AnimationCurveParameters(baseCurve: nil, speedSmoothing: 0.0, baseMsPerStep: 220, baseMsPerStepCurve: nil, dragExponent: 0.7, dragCoefficient: 40, stopSpeed: 30, sendGestureScrolls: false, sendMomentumScrolls: false)
+            //
+            // Speed smoothing is Leios's, and part of what "High" means: a wheel turned at reading
+            // pace otherwise surges to each tick's speed and coasts down until the next, 94 →
+            // 429 pt/s in one frame at four ticks a second. 0.2 was picked by measuring the real
+            // animator at 3–8 ticks a second: the largest frame-to-frame rise in speed falls to
+            // about a quarter, a tick peaks ~80 ms later and ~15% faster, and the glide after the
+            // last tick runs under 10 ms longer; by 0.4 the late peak starts to feel like lag.
+            // Regular's glide has ended before the next slow tick arrives, so it would gain nothing.
+            return AnimationCurveParameters(baseCurve: linearCurve, speedSmoothing: 0.2, baseMsPerStep: 220, baseMsPerStepCurve: nil, dragExponent: 0.7, dragCoefficient: 40, stopSpeed: 30, sendGestureScrolls: false, sendMomentumScrolls: false)
         case .highInertiaPlusTrackpadSim:
-            return AnimationCurveParameters(baseCurve: nil, speedSmoothing: 0.0, baseMsPerStep: 220, baseMsPerStepCurve: nil, dragExponent: 0.7, dragCoefficient: 40, stopSpeed: 30, sendGestureScrolls: true, sendMomentumScrolls: true)
+            return AnimationCurveParameters(baseCurve: linearCurve, speedSmoothing: 0.2, baseMsPerStep: 220, baseMsPerStepCurve: nil, dragExponent: 0.7, dragCoefficient: 40, stopSpeed: 30, sendGestureScrolls: true, sendMomentumScrolls: true)
         case .touchDriver:
             let baseCurve = Bezier(points: [(0, 0), (0, 0), (0.5, 1), (1, 1)], defaultEpsilon: 0.001)
-            return AnimationCurveParameters(justBaseCurve: baseCurve, speedSmoothing: -1, baseMsPerStep: 250, baseMsPerStepCurve: nil, sendGestureScrolls: false)
+            return AnimationCurveParameters(justBaseCurve: baseCurve, baseMsPerStep: 250, baseMsPerStepCurve: nil, sendGestureScrolls: false)
         case .touchDriverLinear:
-            return AnimationCurveParameters(justBaseCurve: linearCurve, speedSmoothing: -1, baseMsPerStep: 180, baseMsPerStepCurve: nil, sendGestureScrolls: false)
+            return AnimationCurveParameters(justBaseCurve: linearCurve, baseMsPerStep: 180, baseMsPerStepCurve: nil, sendGestureScrolls: false)
         case .quickScroll:
-            return AnimationCurveParameters(baseCurve: linearCurve, speedSmoothing: -1, baseMsPerStep: 300, baseMsPerStepCurve: nil, dragExponent: 0.7, dragCoefficient: 30, stopSpeed: 1, sendGestureScrolls: true, sendMomentumScrolls: true)
+            return AnimationCurveParameters(baseCurve: linearCurve, baseMsPerStep: 300, baseMsPerStepCurve: nil, dragExponent: 0.7, dragCoefficient: 30, stopSpeed: 1, sendGestureScrolls: true, sendMomentumScrolls: true)
         case .preciseScroll:
-            return AnimationCurveParameters(baseCurve: linearCurve, speedSmoothing: -1, baseMsPerStep: 140, baseMsPerStepCurve: nil, dragExponent: 1.05, dragCoefficient: 15, stopSpeed: 50, sendGestureScrolls: false, sendMomentumScrolls: false)
+            return AnimationCurveParameters(baseCurve: linearCurve, baseMsPerStep: 140, baseMsPerStepCurve: nil, dragExponent: 1.05, dragCoefficient: 15, stopSpeed: 50, sendGestureScrolls: false, sendMomentumScrolls: false)
         }
     }
 

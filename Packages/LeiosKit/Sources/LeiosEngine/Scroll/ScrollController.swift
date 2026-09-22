@@ -242,54 +242,8 @@ final class ScrollController {
                 }
 
                 let delta = Double(px) + pxLeftToScroll
-                guard let pCurve = config.animationCurveParams else { return .skip }
-
-                // Base duration
-                var baseDuration: Double
-                if pCurve.baseMsPerStep != -1 {
-                    baseDuration = Double(pCurve.baseMsPerStep) / 1000.0
-                } else if let baseTimeCurve = pCurve.baseMsPerStepCurve {
-                    let baseTimeStart = baseTimeCurve.evaluate(at: 0.0)
-                    var tickStart = config.consecutiveScrollTickIntervalMax
-                    let tickEnd = config.consecutiveScrollTickIntervalMin
-                    var tick = result.timeBetweenTicks
-                    if tickStart > baseTimeStart { tickStart = baseTimeStart }
-                    if tick == .greatestFiniteMagnitude { tick = config.consecutiveScrollTickIntervalMax }
-                    if tick > config.consecutiveScrollTickIntervalMax { tick = config.consecutiveScrollTickIntervalMax }
-                    var unitTick = Math.scale(value: tick, from: Interval(start: tickStart, end: tickEnd), to: .unitInterval, allowOutOfBounds: true)
-                    unitTick = clip(unitTick, 0, 1)
-                    baseDuration = baseTimeCurve.evaluate(at: unitTick) / 1000.0
-                } else {
-                    return .skip
-                }
-
-                let duration: Double
-                let curve: Curve
-                if !pCurve.useDragCurve {
-                    guard let base = pCurve.baseCurve else { return .skip }
-                    curve = base
-                    duration = baseDuration
-                } else {
-                    var baseCurve = pCurve.baseCurve
-                    if baseCurve == nil {
-                        // Speed-smoothing curve: start at the current animation speed.
-                        let speedSmoothing = pCurve.speedSmoothing
-                        assert(0 <= speedSmoothing && speedSmoothing <= 1)
-                        // Slope of the curve at its start, in unit distance per unit time: y is px/s
-                        // over px and x is 1 over the duration, both in seconds. Mac Mouse Fix divides
-                        // the duration by 1000 here, which reads it as milliseconds although it is
-                        // already in seconds and skews the slope by 1000×. Dormant either way while
-                        // every shipped curve sets `speedSmoothing` to 0, which collapses this to a line.
-                        let startDirection = Vector(x: 1 / baseDuration, y: magnitude(currentSpeed) / delta)
-                        let p1 = vectorFromDeltaAndDirectionVector(speedSmoothing, startDirection)
-                        baseCurve = Bezier(points: [(0, 0), (p1.x, p1.y), (1, 1)], defaultEpsilon: 0.01)
-                    }
-                    let hc = BezierHybridCurve(baseCurve: baseCurve!, minDuration: baseDuration, distance: delta, dragCoefficient: pCurve.dragCoefficient, dragExponent: pCurve.dragExponent, stopSpeed: pCurve.stopSpeed, distanceEpsilon: 0.2)
-                    duration = hc.duration
-                    curve = hc
-                }
-
-                return AnimatorStartParams(doStart: true, duration: duration, vector: vectorFromDeltaAndDirection(delta, direction), curve: curve)
+                guard let animation = ScrollController.tickAnimation(distance: delta, currentSpeed: magnitude(currentSpeed), timeBetweenTicks: result.timeBetweenTicks, config: config) else { return .skip }
+                return AnimatorStartParams(doStart: true, duration: animation.duration, vector: vectorFromDeltaAndDirection(delta, direction), curve: animation.curve)
             }, callback: { [self] deltaVec, animationPhase, momentumHint in
                 assert(deltaVec.x == 0 || deltaVec.y == 0)
                 let distanceDelta = magnitude(deltaVec)
@@ -297,6 +251,64 @@ final class ScrollController {
             })
         }
         return true
+    }
+
+    // MARK: Tick animation
+
+    /// The curve one tick animates along, and for how long. `distance` already includes what the
+    /// animation it replaces still had to go, and `currentSpeed` is how fast that one was moving,
+    /// in points per second — zero from a standstill.
+    static func tickAnimation(distance delta: Double, currentSpeed: Double, timeBetweenTicks: CFTimeInterval, config: ScrollConfig) -> (curve: Curve, duration: Double)? {
+        guard let pCurve = config.animationCurveParams else { return nil }
+
+        // Base duration
+        var baseDuration: Double
+        if pCurve.baseMsPerStep != -1 {
+            baseDuration = Double(pCurve.baseMsPerStep) / 1000.0
+        } else if let baseTimeCurve = pCurve.baseMsPerStepCurve {
+            let baseTimeStart = baseTimeCurve.evaluate(at: 0.0)
+            var tickStart = config.consecutiveScrollTickIntervalMax
+            let tickEnd = config.consecutiveScrollTickIntervalMin
+            var tick = timeBetweenTicks
+            if tickStart > baseTimeStart { tickStart = baseTimeStart }
+            if tick == .greatestFiniteMagnitude { tick = config.consecutiveScrollTickIntervalMax }
+            if tick > config.consecutiveScrollTickIntervalMax { tick = config.consecutiveScrollTickIntervalMax }
+            var unitTick = Math.scale(value: tick, from: Interval(start: tickStart, end: tickEnd), to: .unitInterval, allowOutOfBounds: true)
+            unitTick = clip(unitTick, 0, 1)
+            baseDuration = baseTimeCurve.evaluate(at: unitTick) / 1000.0
+        } else {
+            return nil
+        }
+
+        if !pCurve.useDragCurve {
+            return (pCurve.baseCurve, baseDuration)
+        }
+
+        var baseCurve = pCurve.baseCurve
+        if pCurve.speedSmoothing > 0, currentSpeed > 0 {
+            // The curve's unit square spans the base duration and the distance, so this slope
+            // starts it at `currentSpeed` points per second.
+            baseCurve = speedMatchingCurve(startSlope: currentSpeed * baseDuration / delta, ramp: pCurve.speedSmoothing)
+        }
+        let hc = BezierHybridCurve(baseCurve: baseCurve, minDuration: baseDuration, distance: delta, dragCoefficient: pCurve.dragCoefficient, dragExponent: pCurve.dragExponent, stopSpeed: pCurve.stopSpeed, distanceEpsilon: 0.2)
+        return (hc, hc.duration)
+    }
+
+    /// A base curve that sets off at `startSlope` and eases into the straight line every tick
+    /// follows without smoothing, so a tick starts at the speed the content is already moving
+    /// rather than jumping to its own. Running slower at first, it runs a little faster than the
+    /// line afterwards to cover the same distance in the same time.
+    ///
+    /// The solver runs to 1e-4 rather than the 0.01 Mac Mouse Fix used for its version of this
+    /// curve. That tolerance is on *time*, so at 0.01 a 100 pt tick can land up to a point off on
+    /// any frame — the very unevenness this curve exists to remove.
+    static func speedMatchingCurve(startSlope: Double, ramp: Double) -> Bezier {
+        let p1x = ramp
+        let p2 = 2 * ramp
+        // Capped where the curve would stop rising monotonically. Content moving more than twice
+        // as fast as the new tick drops to twice its speed at once, then eases the rest of the way.
+        let slope = min(max(startSlope, 0), p2 / p1x)
+        return Bezier(points: [(0, 0), (p1x, p1x * slope), (p2, p2), (1, 1)], defaultEpsilon: 1e-4)
     }
 
     /// Picks the resolver for the app under the pointer, once per scroll sequence.

@@ -14,6 +14,9 @@ class HybridCurve: Curve {
 
     fileprivate(set) var baseTimeInterval: Interval = .unitInterval
     fileprivate(set) var baseDistanceInterval: Interval = .unitInterval
+    /// Where the base curve hands over to the drag curve, in the base curve's own unit square — the
+    /// one `minDuration` × `distance` stretches onto real time and distance.
+    fileprivate var baseCurveEnd = Vector(x: 1, y: 1)
     var baseDuration: Double { baseTimeInterval.length }
     var baseDistance: Double { baseDistanceInterval.length }
 
@@ -32,6 +35,8 @@ class HybridCurve: Curve {
     private var baseFraction: Double = 1
     private var baseTimeIntervalUnit: Interval = .unitInterval
     private var baseDistanceIntervalUnit: Interval = .unitInterval
+    private var baseCurveXInterval: Interval = .unitInterval
+    private var baseCurveYInterval: Interval = .unitInterval
     private var dragTimeIntervalUnit: Interval = .unitInterval
     private var dragDistanceIntervalUnit: Interval = .unitInterval
     private var usesDragCurve = false
@@ -44,6 +49,8 @@ class HybridCurve: Curve {
         let distanceFraction = distance > 0 ? baseDistance / distance : 1
         baseTimeIntervalUnit = Interval(start: 0, end: baseFraction)
         baseDistanceIntervalUnit = Interval(start: 0, end: distanceFraction)
+        baseCurveXInterval = Interval(start: 0, end: baseCurveEnd.x)
+        baseCurveYInterval = Interval(start: 0, end: baseCurveEnd.y)
         dragTimeIntervalUnit = Interval(start: baseFraction, end: 1)
         dragDistanceIntervalUnit = Interval(start: distanceFraction, end: 1)
         usesDragCurve = dragCurve != nil && dragTimeRange > 0
@@ -58,9 +65,14 @@ class HybridCurve: Curve {
 
     override func evaluate(at x: Double) -> Double {
         if baseDuration > 0 && x <= baseFraction {
-            var baseCurveResult = baseCurve.evaluate(at: Math.scale(value: x, from: baseTimeIntervalUnit, to: .unitInterval, allowOutOfBounds: true))
-            if baseCurveResult > 1 { baseCurveResult = 1 }
-            return Math.scale(value: baseCurveResult, from: .unitInterval, to: baseDistanceIntervalUnit, allowOutOfBounds: true)
+            // The base curve runs only as far as the point where the drag curve takes over, which
+            // is how the transition search measured it. Mac Mouse Fix stretches the whole curve over
+            // that span instead: the same thing for a straight line, its only shipped base curve,
+            // but any other gets the wrong starting speed and a jump in speed at the hand-over.
+            guard baseCurveEnd.y > 0 else { return 0 }
+            var baseCurveResult = baseCurve.evaluate(at: Math.scale(value: x, from: baseTimeIntervalUnit, to: baseCurveXInterval, allowOutOfBounds: true))
+            if baseCurveResult > baseCurveEnd.y { baseCurveResult = baseCurveEnd.y }
+            return Math.scale(value: baseCurveResult, from: baseCurveYInterval, to: baseDistanceIntervalUnit, allowOutOfBounds: true)
         } else if usesDragCurve, let c = dragCurve {
             let dragCurveResult = c.evaluate(at: Math.scale(value: x, from: dragTimeIntervalUnit, to: .unitInterval, allowOutOfBounds: true))
             return Math.scale(value: dragCurveResult, from: .unitInterval, to: dragDistanceIntervalUnit, allowOutOfBounds: true)
@@ -101,6 +113,7 @@ final class BezierHybridCurve: HybridCurve {
 
         baseTimeInterval = Interval(start: 0, end: transitionTime)
         baseDistanceInterval = Interval(start: 0, end: transitionDistance)
+        baseCurveEnd = Vector(x: transitionTime / minDuration, y: transitionDistance / targetDistance)
         self.dragCurve = dragCurve
         self.dragCoefficient = dragCoefficient
         self.dragExponent = dragExponent
@@ -182,6 +195,7 @@ final class LineHybridCurve: HybridCurve {
         let (transitionTime, transitionDistance, dragCurve) = LineHybridCurve._lineInit(minDuration: minDuration, distance: distance, dragCoefficient: dragCoefficient, dragExponent: dragExponent, stopSpeed: stopSpeed)
         baseTimeInterval = Interval(start: 0, end: transitionTime)
         baseDistanceInterval = Interval(start: 0, end: transitionDistance)
+        baseCurveEnd = Vector(x: transitionTime / minDuration, y: transitionDistance / distance)
         self.dragCurve = dragCurve
         self.dragCoefficient = dragCoefficient
         self.dragExponent = dragExponent
