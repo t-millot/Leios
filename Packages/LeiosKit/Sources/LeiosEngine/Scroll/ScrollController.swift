@@ -34,7 +34,6 @@ final class ScrollController {
     /// settings. Keyed by name rather than by resolver identity so it survives a settings reload.
     private var activeProfile: String?
     private var lastTickTime: CFTimeInterval = -.infinity
-    private var lastAnalysisResult: ScrollAnalysisResult?
     private var previousMouseLocation: CGPoint = .zero
     private var mouseDidMove = false
     private var lastMomentumHint: MomentumHint = .none
@@ -173,8 +172,6 @@ final class ScrollController {
 
         scrollDirection = ScrollController.direction(axis: inputAxis, delta: scrollDelta, invert: scrollConfig.invertDirection, horizontalModifier: currentModifications.effectMod == .horizontalScroll)
         let result = analyzer.update(tickAt: tickTime, direction: scrollDirection, config: scrollConfig)
-        let previousResult = lastAnalysisResult
-        lastAnalysisResult = result
         scrollDelta = abs(scrollDelta)
 
         // Acceleration
@@ -202,8 +199,15 @@ final class ScrollController {
             }
 
             // Direction change stops the running animation (the user gets control over stopping).
+            //
+            // This tick's analysis, not the previous one's. Mac Mouse Fix reads
+            // `_lastScrollAnalysisResult` here, but assigns this tick's result to it a few lines
+            // earlier, so the name means "latest". The flag is only ever set on the reversing tick
+            // itself, so reading the previous tick's copy let the first reversed tick start a
+            // reverse animation and the *second* one cancel it — a flick back stuttered, moved and
+            // then stopped dead, instead of stopping first and then following the wheel.
             let currentAnimationSpeed = magnitude(animator.lastAnimationSpeed)
-            if let previousResult, previousResult.scrollDirectionDidChange, currentAnimationSpeed > 0 {
+            if result.scrollDirectionDidChange, currentAnimationSpeed > 0 {
                 animator.cancel()
                 return true
             }

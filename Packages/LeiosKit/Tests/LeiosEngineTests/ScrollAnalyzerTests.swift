@@ -73,6 +73,25 @@ final class ScrollAnalyzerTests: XCTestCase {
         }
     }
 
+    /// `scrollDirectionDidChange` is true on the reversing tick and on no other. `ScrollController`
+    /// stops the running animation on exactly that tick, so it must read *this* tick's result:
+    /// reading the previous one's let the first reversed tick scroll and the second one stop dead.
+    func testDirectionChangeIsReportedOnTheReversingTickOnly() {
+        let analyzer = ScrollAnalyzer()
+        let cfg = config()
+        var clock = 50.0
+        _ = analyzer.update(tickAt: clock, direction: .down, config: cfg)
+        clock += 0.03
+        XCTAssertFalse(analyzer.update(tickAt: clock, direction: .down, config: cfg).scrollDirectionDidChange)
+        clock += 0.03
+        XCTAssertTrue(analyzer.peekIsFirstConsecutiveTick(at: clock, direction: .up, config: cfg),
+                      "a reversal always starts a new sequence, so the controller re-resolves its config")
+        XCTAssertTrue(analyzer.update(tickAt: clock, direction: .up, config: cfg).scrollDirectionDidChange)
+        clock += 0.03
+        XCTAssertFalse(analyzer.update(tickAt: clock, direction: .up, config: cfg).scrollDirectionDidChange,
+                       "the tick after a reversal is an ordinary tick")
+    }
+
     func testDirectionHelper() {
         XCTAssertEqual(ScrollController.direction(axis: .vertical, delta: -1, invert: -1, horizontalModifier: false), .up)
         XCTAssertEqual(ScrollController.direction(axis: .vertical, delta: -1, invert: 1, horizontalModifier: false), .down)
