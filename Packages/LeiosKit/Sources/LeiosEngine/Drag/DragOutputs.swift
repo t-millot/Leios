@@ -62,7 +62,11 @@ final class TwoFingerSwipeOutput: DragOutput, EmergencyCleanable {
             pointerFreeze.freezeEventDispatchPoint(at: drag.usageOrigin)
         }
         smoothingAnimator.resetSubPixelator()
-        smoothingAnimator.link(to: EventUtility.display(at: drag.usageOrigin) ?? CGMainDisplayID())
+        // The origin, not wherever the pointer ends up: that is where the scrolled view is, and an
+        // unlocked pointer can wander onto another display during the drag.
+        let display = EventUtility.display(at: drag.usageOrigin) ?? CGMainDisplayID()
+        smoothingAnimator.link(to: display)
+        gestureSim.linkMomentum(to: display)
     }
 
     func mouseInput(drag: ModifiedDrag, dx: Double, dy: Double, event: CGEvent) {

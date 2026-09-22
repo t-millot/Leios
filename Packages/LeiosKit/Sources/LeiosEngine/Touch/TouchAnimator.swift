@@ -37,7 +37,11 @@ final class TouchAnimator {
     /// The clock the *running* animation is subscribed to. Deliberately not reused across cold
     /// starts: the pool replaces its clocks on every screen-parameter change, so a clock cached here
     /// can already be dead by the next animation.
-    private var clock: FrameClock?
+    private(set) var clock: FrameClock?
+    /// The clock a running animation is moving to, subscribed next to `clock` until it delivers its
+    /// first frame. A paused display link takes one to three frames to start, and dropping the old
+    /// clock straight away stood the glide still for that long.
+    private var incomingClock: FrameClock?
     /// Display whose clock the next cold start should use.
     private var linkedDisplay: CGDirectDisplayID?
     private var clientCallback: Callback?
@@ -86,14 +90,27 @@ final class TouchAnimator {
         subPixelator.reset()
     }
 
-    /// Picks the frame clock of `display`. Only takes effect for the next cold start.
+    /// Picks the frame clock of `display`, and moves a running animation onto it.
+    ///
+    /// Mac Mouse Fix only relinks between animations. That leaves a scroll which begins on another
+    /// display while the last one is still gliding — and every running start after it, which is
+    /// all of them while the wheel keeps turning — at the old display's refresh rate: 60 fps on a
+    /// 120 Hz screen for as long as the scrolling continues. The animation is timed by the frames'
+    /// target timestamps, which share one time base across displays, so it can change clocks
+    /// between two frames without changing its course.
     func link(to display: CGDirectDisplayID) {
-        if isRunning { return }
         linkedDisplay = display
+        guard isRunning, let current = clock, let next = clockPool.clock(for: display), next !== incomingClock else { return }
+        dropIncomingClock()
+        // Back on the display it was leaving, before the move completed.
+        guard next !== current else { return }
+        // A clock torn down in the meantime refuses the subscription and leaves the animation where it was.
+        if subscribe(to: next) { incomingClock = next }
     }
 
-    func linkToMainScreen() {
-        link(to: CGMainDisplayID())
+    private func dropIncomingClock() {
+        incomingClock?.unsubscribe(ObjectIdentifier(self))
+        incomingClock = nil
     }
 
     // MARK: Start
@@ -164,16 +181,20 @@ final class TouchAnimator {
             Log.engine.error("TouchAnimator: no frame clock available; cannot animate")
             return
         }
-        self.clock = clock
-        guard clock.subscribe(ObjectIdentifier(self), { [weak self] timing in
-            self?.frameCallback(timing)
-        }) else {
+        guard subscribe(to: clock) else {
             Log.engine.error("TouchAnimator: frame clock was already torn down; cannot animate")
-            self.clock = nil
             return
         }
+        self.clock = clock
         lastClockActivity = CACurrentMediaTime()
         isRunning = true
+    }
+
+    private func subscribe(to clock: FrameClock) -> Bool {
+        let source = ObjectIdentifier(clock)
+        return clock.subscribe(ObjectIdentifier(self)) { [weak self] timing in
+            self?.frameCallback(timing, from: source)
+        }
     }
 
     // MARK: Cancel / stop
@@ -192,6 +213,7 @@ final class TouchAnimator {
         if isRunning {
             clock?.unsubscribe(ObjectIdentifier(self))
         }
+        dropIncomingClock()
         isRunning = false
         isFirstCallbackAfterColdStart = false
         isFirstCallbackAfterRunningStart = false
@@ -200,8 +222,14 @@ final class TouchAnimator {
 
     // MARK: Frame callback
 
-    private func frameCallback(_ timing: FrameTiming) {
+    private func frameCallback(_ timing: FrameTiming, from source: ObjectIdentifier) {
         guard isRunning else { return }
+        if let incoming = incomingClock, ObjectIdentifier(incoming) == source {
+            // The new display's clock is ticking, so the old one can let go.
+            clock?.unsubscribe(ObjectIdentifier(self))
+            clock = incoming
+            incomingClock = nil
+        }
         lastClockActivity = timing.now
         guard let callback = clientCallback, let animationCurve else {
             assertionFailure("Invalid state - callback/curve can't be nil during running animation")
@@ -209,6 +237,11 @@ final class TouchAnimator {
         }
 
         var frameTime = timing.outFrame
+
+        // After `link(to:)` moved the animation to another display, the new clock's next frame can
+        // be due before the last one the old clock produced — a 120 Hz frame lands inside a 60 Hz
+        // one. Animating to it would run the curve backwards and scroll the wrong way by a pixel.
+        if !isFirstCallbackAfterColdStart, frameTime <= lastFrameTime { return }
 
         if isFirstCallbackAfterColdStart {
             // Hypothetical last frame, so the first time delta is the same size as all the others.

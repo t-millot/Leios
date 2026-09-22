@@ -123,7 +123,7 @@ final class EngineRegressionTests: XCTestCase {
         let done = expectation(description: "started")
         thread.perform {
             let animator = TouchAnimator(clockPool: pool)
-            animator.linkToMainScreen()
+            animator.link(to: CGMainDisplayID())
             animator.start(params: { _, _, _, _ in
                 AnimatorStartParams(doStart: true, duration: 0.2, vector: Vector(x: 0, y: 120), curve: ScrollConfig.linearCurve)
             }, callback: { _, _, _ in })
@@ -153,7 +153,7 @@ final class EngineRegressionTests: XCTestCase {
         }
         let animator = thread.performSync { () -> TouchAnimator in
             let animator = TouchAnimator(clockPool: pool)
-            animator.linkToMainScreen()
+            animator.link(to: CGMainDisplayID())
             animator.start(params: params, callback: { _, _, _ in })
             return animator
         }

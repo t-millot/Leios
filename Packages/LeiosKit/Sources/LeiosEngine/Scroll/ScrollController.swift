@@ -34,8 +34,6 @@ final class ScrollController {
     /// settings. Keyed by name rather than by resolver identity so it survives a settings reload.
     private var activeProfile: String?
     private var lastTickTime: CFTimeInterval = -.infinity
-    private var previousMouseLocation: CGPoint = .zero
-    private var mouseDidMove = false
     private var lastMomentumHint: MomentumHint = .none
     private let linePixelator = VectorSubPixelator.biased()
     /// Set once by `EngineSubsystems`. Optional so the controller can be built without it in tests.
@@ -147,7 +145,6 @@ final class ScrollController {
         let firstConsecutive = analyzer.peekIsFirstConsecutiveTick(at: tickTime, direction: scrollDirection, config: scrollConfig)
 
         if firstConsecutive {
-            updateMouseDidMove(event: event)
             let resolver = resolveProfile(event: event, tickTime: tickTime)
             let flags = modifiers.current(event: event).keyboardFlags
             // The modifier map comes from the chosen profile, not from the outgoing `scrollConfig`:
@@ -162,6 +159,11 @@ final class ScrollController {
             }
             let display = EventUtility.displayUnderPointer(event: event)
             scrollConfig = resolver.resolve(modifiers: newMods, inputAxis: inputAxis, display: display)
+            // Every sequence, and whether or not a glide is still running. Mac Mouse Fix relinks
+            // only when the pointer moved more than 10 pt since the last sequence *and* nothing is
+            // animating, so scrolling onto a 120 Hz display while a 60 Hz glide was still running
+            // stayed at 60 fps until the pointer happened to move and the wheel came to rest.
+            animator.link(to: display)
         }
         lastTickTime = tickTime
 
@@ -224,11 +226,6 @@ final class ScrollController {
             let direction = scrollDirection
             animator.start(params: { [self] valueLeftVec, isRunning, _, currentSpeed in
                 assert(valueLeftVec.x == 0 || valueLeftVec.y == 0)
-                if mouseDidMove && !isRunning {
-                    // `previousMouseLocation` was just refreshed from this very event, so use it
-                    // rather than synthesizing a CGEvent to ask where the pointer is.
-                    animator.link(to: EventUtility.display(at: previousMouseLocation) ?? CGMainDisplayID())
-                }
 
                 var pxLeftToScroll = 0.0
                 if isRunning {
@@ -326,12 +323,6 @@ final class ScrollController {
 
     /// A scroll sequence ends after this long without a tick; the next one re-reads the app.
     private static let sequenceGap: CFTimeInterval = 0.5
-
-    private func updateMouseDidMove(event: CGEvent) {
-        let location = event.location
-        mouseDidMove = abs(location.x - previousMouseLocation.x) > 10 || abs(location.y - previousMouseLocation.y) > 10
-        previousMouseLocation = location
-    }
 
     static func direction(axis: MFAxis, delta: Int64, invert: Int, horizontalModifier: Bool) -> MFDirection {
         let effective = mfsign(Double(delta)) * invert

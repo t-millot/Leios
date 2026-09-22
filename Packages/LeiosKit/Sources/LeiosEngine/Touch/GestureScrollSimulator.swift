@@ -85,6 +85,13 @@ final class GestureScrollSimulator {
 
     // MARK: Momentum scroll
 
+    /// Picks the display whose frame clock drives automatic momentum scrolling. Mac Mouse Fix
+    /// links it to the key window's screen, the port to the primary display; either way momentum
+    /// on a 120 Hz screen next to a 60 Hz primary ran at 60 fps. Unlinked, it stays on the primary.
+    func linkMomentum(to display: CGDirectDisplayID) {
+        momentumAnimator.link(to: display)
+    }
+
     func stopMomentumScroll() {
         let wasPending = momentumStartPending
         momentumStartPending = false
@@ -109,7 +116,6 @@ final class GestureScrollSimulator {
         }
 
         momentumAnimator.resetSubPixelator()
-        momentumAnimator.linkToMainScreen()
 
         momentumStartPending = true
         momentumAnimator.start(params: { [self] _, _, _, _ in
