@@ -162,16 +162,19 @@ here at all. Peers are found through a roster record at a known name, deliberate
 — a query needs an index deployed from the CloudKit dashboard, which record fields do not, and
 that would be a manual release step with no build-time signal.
 
-**Event timestamps are nanoseconds, not mach ticks.** `CGEvent.timestamp` is already in
-nanoseconds, so `EventUtility.timestampSeconds` divides by 1e9 and must *not* go through
-`mach_timebase_info` the way `mach_absolute_time()` does. On Intel the two were the same number
-(the timebase is 1/1 there), which is why Mac Mouse Fix converts it as a mach time and why the
-mistake survived the port unnoticed. On Apple silicon the timebase is 125/3, so every interval the
-engine measured came out about 42× too long: no scroll tick was ever within
-`consecutiveScrollTickIntervalMax` of the one before it, so `ScrollAnalyzer` treated every tick as
-a new sequence, acceleration sat at its floor, fast scroll never engaged, and `ScrollController`
-re-resolved the app under the pointer on every tick instead of once per sequence — the exact
-per-tick lookup the `sequenceGap` design exists to avoid.
+**Event timestamps come in two units, and `timestampSeconds` must read both.** Events from real
+hardware carry the IOHIDEvent's mach time, in ticks; events built with `CGEvent(…)` and posted —
+every synthetic test, and the engine's own output — are stamped in nanoseconds.
+`EventUtility.seconds(fromEventTimestamp:nowTicks:)` picks the unit per event by which reading lands
+nearer to now. On Intel the two are the same number (the timebase is 1/1), which is why Mac Mouse Fix
+never had to care. On Apple silicon the timebase is 125/3 and the wrong reading is off by 42×, both
+ways, and each has already shipped once. Read as mach time, synthetic ticks were never within
+`consecutiveScrollTickIntervalMax` of each other: every tick started a new sequence, acceleration
+sat at its floor and `ScrollController` re-resolved the app under the pointer on every tick. Read as
+nanoseconds, a real wheel paused for eight seconds still looked mid-sequence, so the Quick and
+Precise keys — read only at a sequence start — stayed in force after release until a reversal began
+a new one. **A timestamp fix verified only with synthetic input proves nothing about a real
+mouse:** the two paths do not share a unit, so check with a listen-only tap and a hand on the wheel.
 
 **XPC is helper-hosted, not an XPC service.** The helper is a launchd agent (`SupportFiles/com.tmillot.Leios.Helper.plist`, `MachServices`), registered by the app through `SMAppService.agent(plistName:)`. `XPCService` rejects connections whose code-signing team doesn't match its own — with a `#if DEBUG` escape hatch for unsigned local builds, so a Release build without a signing team on **both** targets silently refuses to talk to its own app.
 

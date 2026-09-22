@@ -22,16 +22,18 @@ extension CGEvent {
     }
     /// Timestamp in seconds since boot, on the same clock as `CACurrentMediaTime()`.
     ///
-    /// `CGEventTimestamp` is **nanoseconds**, not mach ticks, so it must not go through
-    /// `mach_timebase_info` the way `mach_absolute_time()` does. On Intel the two were the same
-    /// number — the timebase is 1/1 there — which is why Mac Mouse Fix could convert it as a mach
-    /// time and why the mistake survives being ported. On Apple silicon the timebase is 125/3, so
-    /// converting it inflated every interval the engine measures by about 42×: no scroll tick was
-    /// ever within `consecutiveScrollTickIntervalMax` of the one before it, so acceleration sat at
-    /// its floor, fast scroll never engaged, and `ScrollController` re-resolved the app under the
-    /// pointer on every tick instead of once per sequence.
+    /// `CGEventTimestamp` comes in **two units** depending on where the event came from, and the
+    /// engine sees both. Events from real hardware carry the IOHIDEvent's mach time, in ticks;
+    /// events made with `CGEvent(…)` and posted — every synthetic test, and our own output — are
+    /// stamped in nanoseconds. On Intel the two are the same number (the timebase is 1/1), which
+    /// is why Mac Mouse Fix could treat them as one. On Apple silicon the timebase is 125/3, and
+    /// reading either as the other skews every interval by about 42×. Read as mach time, synthetic
+    /// ticks never fell within `consecutiveScrollTickIntervalMax` of each other; read as
+    /// nanoseconds, a real wheel paused for eight seconds still looked mid-sequence, so the
+    /// Quick and Precise keys — read only at a sequence start — stayed in force after release
+    /// until a reversal began a new one. See `EventUtility.seconds(fromEventTimestamp:…)`.
     var timestampSeconds: CFTimeInterval {
-        CFTimeInterval(timestamp) / 1e9
+        EventUtility.seconds(fromEventTimestamp: timestamp, nowTicks: mach_absolute_time())
     }
     var senderID: UInt64 {
         UInt64(bitPattern: getInt(kLeiosCGEventFieldSenderID))
@@ -39,6 +41,27 @@ extension CGEvent {
 }
 
 enum EventUtility {
+
+    static let machTimebase: mach_timebase_info_data_t = {
+        var tb = mach_timebase_info_data_t()
+        mach_timebase_info(&tb)
+        return tb
+    }()
+
+    /// Seconds since boot for an event timestamp in either unit (see `CGEvent.timestampSeconds`).
+    ///
+    /// The unit is decided per event by which reading lands nearer to now. An event is at most a
+    /// few milliseconds old when a tap sees it, and the wrong reading is off by a factor of 42 —
+    /// days, on a machine that has been up for hours — so there is no uptime at which the two can
+    /// be confused. With a 1/1 timebase both readings agree and the choice does not matter.
+    static func seconds(fromEventTimestamp timestamp: UInt64, nowTicks: UInt64, timebase: mach_timebase_info_data_t = machTimebase) -> CFTimeInterval {
+        let scale = Double(timebase.numer) / Double(timebase.denom)
+        let nowNs = Double(nowTicks) * scale
+        let asNs = Double(timestamp)
+        let asTicks = Double(timestamp) * scale
+        let ns = abs(nowNs - asTicks) < abs(nowNs - asNs) ? asTicks : asNs
+        return ns / 1e9
+    }
 
     /// 16.16 fixed point, rounded (real scroll wheel events look like this).
     static func fixedScrollDelta(_ scrollDelta: Double) -> Int64 {
