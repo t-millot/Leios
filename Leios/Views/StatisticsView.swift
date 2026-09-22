@@ -17,7 +17,7 @@ struct StatisticsView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 12) {
                 rangePicker
                 if !stats.hasLoaded {
                     loading
@@ -93,6 +93,8 @@ struct StatisticsView: View {
 
     // MARK: Content
 
+    /// Scrolling first, then what the buttons did, then where it happened: the order a reader
+    /// would ask the questions in, and it keeps each chart next to the one it explains.
     @ViewBuilder
     private var content: some View {
         tiles
@@ -100,10 +102,10 @@ struct StatisticsView: View {
         if stats.range.hasTimeOfDay, !stats.timeOfDay.isEmpty {
             timeOfDayChart
         }
+        directionChart
         if !stats.buttonRows.isEmpty {
             buttonsChart
         }
-        directionChart
         if !stats.actionRows.isEmpty {
             actionsChart
         }
@@ -113,19 +115,30 @@ struct StatisticsView: View {
     }
 
     private var tiles: some View {
-        // A hero number is not a chart, and five of them are not five charts.
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 12)], spacing: 12) {
-            StatTile(title: "Scrolled", value: ScrollDistance.format(points: stats.summary.counters.outPoints),
-                     caption: "on screen, about")
-            StatTile(title: "Scroll Ticks", value: stats.summary.counters.inTicks.formatted(),
-                     caption: "\(stats.summary.counters.scrollSequences.formatted()) flicks")
-            StatTile(title: "Clicks", value: stats.summary.counters.clicks.formatted(),
-                     caption: "\(stats.summary.counters.doubleClicks.formatted()) double")
-            StatTile(title: "Drag Gestures", value: stats.summary.counters.dragStarts.formatted(),
-                     caption: ScrollDistance.format(points: stats.summary.counters.dragPoints))
-            StatTile(title: "Actions", value: stats.summary.counters.actions.formatted(),
-                     caption: "\(stats.summary.counters.holds.formatted()) from holds")
+        // A hero number is not a chart, and five of them are not five charts. One row when the
+        // pane is wide enough to read them all, otherwise three and two — an adaptive grid left
+        // the fifth tile alone on a row of its own at the default window size.
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) { tileContents }
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), spacing: 12) {
+                tileContents
+            }
         }
+    }
+
+    @ViewBuilder
+    private var tileContents: some View {
+        let counters = stats.summary.counters
+        StatTile(title: "Scrolled", value: ScrollDistance.format(points: counters.outPoints),
+                 caption: "on screen, about")
+        StatTile(title: "Scroll Ticks", value: counters.inTicks.formatted(),
+                 caption: "\(counters.scrollSequences.formatted()) flicks")
+        StatTile(title: "Clicks", value: counters.clicks.formatted(),
+                 caption: "\(counters.doubleClicks.formatted()) double")
+        StatTile(title: "Drags", value: counters.dragStarts.formatted(),
+                 caption: "\(ScrollDistance.format(points: counters.dragPoints)) moved")
+        StatTile(title: "Actions", value: counters.actions.formatted(),
+                 caption: "\(counters.holds.formatted()) from holds")
     }
 
     private var mainChart: some View {
@@ -209,8 +222,8 @@ struct StatisticsView: View {
         }
     }
 
-    /// A horizontal bar per category, plus the axis beneath them.
-    private static func rowsHeight(_ rows: Int) -> CGFloat { CGFloat(rows) * 28 + 24 }
+    /// A horizontal bar per category. No axis beneath them: every bar carries its own count.
+    private static func rowsHeight(_ rows: Int) -> CGFloat { CGFloat(rows) * 30 }
 
     private var buttonsChart: some View {
         ChartCard(accessibilityTitle: "Clicks by Button", plotHeight: Self.rowsHeight(stats.buttonRows.count)) {
@@ -218,48 +231,37 @@ struct StatisticsView: View {
         } chart: {
             Chart(stats.buttonRows) { row in
                 BarMark(x: .value("Clicks", row.counts.clicks),
-                        y: .value("Button", row.name))
+                        y: .value("Button", row.name),
+                        height: Self.rowBarHeight)
                     .cornerRadius(4)
                     .foregroundStyle(Self.color(forButton: row.id))
-                    .annotation(position: .trailing) {
-                        Text(row.counts.clicks.formatted())
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    .annotation(position: .trailing) { rowCount(row.counts.clicks.formatted()) }
                     .accessibilityLabel(row.name)
                     .accessibilityValue("\(row.counts.clicks) clicks")
             }
-            .chartXAxis {
-                AxisMarks { value in
-                    AxisGridLine().foregroundStyle(.quaternary)
-                    AxisValueLabel { axisNumber(value) }
-                }
-            }
+            .rowChartStyle(peak: Double(stats.buttonRows.map(\.counts.clicks).max() ?? 0))
         }
     }
 
+    /// Rows, like every other chart of categories here. As columns, the two directions nobody
+    /// scrolls in were bars of zero height with nothing to say how close to zero they were.
     private var directionChart: some View {
-        ChartCard(accessibilityTitle: "Scroll Direction") {
+        ChartCard(accessibilityTitle: "Scroll Direction", plotHeight: Self.rowsHeight(stats.directionRows.count)) {
             ChartCardTitle(title: "Scroll Direction", subtitle: overTheRange)
         } chart: {
             Chart(stats.directionRows) { row in
                 // One hue for all four: each bar is named on the axis, so colour would be
                 // decoration repeating what the label already says.
-                BarMark(x: .value("Direction", row.direction.displayName),
-                        y: .value("Distance", row.points),
-                        width: .ratio(0.45))
+                BarMark(x: .value("Distance", row.points),
+                        y: .value("Direction", row.direction.displayName),
+                        height: Self.rowBarHeight)
                     .cornerRadius(4)
                     .foregroundStyle(Self.primary)
+                    .annotation(position: .trailing) { rowCount(ScrollDistance.format(points: row.points)) }
                     .accessibilityLabel(row.direction.displayName)
                     .accessibilityValue(ScrollDistance.format(points: row.points))
             }
-            .chartYScale(domain: 0...max(1, directionPeak))
-            .chartYAxis {
-                AxisMarks { value in
-                    AxisGridLine().foregroundStyle(.quaternary)
-                    AxisValueLabel { distanceAxisLabel(value, peak: directionPeak) }
-                }
-            }
+            .rowChartStyle(peak: stats.directionRows.map(\.points).max() ?? 0)
         }
     }
 
@@ -276,23 +278,14 @@ struct StatisticsView: View {
             // keeps neighbouring bars to the pairs the palette is validated for, which the
             // ranking would otherwise decide.
             Chart(Array(top.enumerated()), id: \.element.id) { index, row in
-                BarMark(x: .value("Times", row.count), y: .value("Action", row.name))
+                BarMark(x: .value("Times", row.count), y: .value("Action", row.name), height: Self.rowBarHeight)
                     .cornerRadius(4)
                     .foregroundStyle(Self.color(slot: index))
-                    .annotation(position: .trailing) {
-                        Text(row.count.formatted())
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    .annotation(position: .trailing) { rowCount(row.count.formatted()) }
                     .accessibilityLabel(row.name)
                     .accessibilityValue("\(row.count) times")
             }
-            .chartXAxis {
-                AxisMarks { value in
-                    AxisGridLine().foregroundStyle(.quaternary)
-                    AxisValueLabel { axisNumber(value) }
-                }
-            }
+            .rowChartStyle(peak: Double(top.map(\.count).max() ?? 0))
         }
     }
 
@@ -303,23 +296,20 @@ struct StatisticsView: View {
             ChartCardTitle(title: "Macs", subtitle: "Every Mac signed in to this Apple Account")
         } chart: {
             Chart(stats.merged.devices) { device in
+                // By ID, named on the axis: two Macs called "MacBook Pro" plotted by name are one
+                // row with both bars stacked in it and only the second one's count at the end.
                 BarMark(x: .value("Clicks", device.lifetime.counters.clicks),
-                        y: .value("Mac", device.deviceName.isEmpty ? "This Mac" : device.deviceName))
+                        y: .value("Mac", device.id),
+                        height: Self.rowBarHeight)
                     .cornerRadius(4)
                     .foregroundStyle(Self.primary)
-                    .annotation(position: .trailing) {
-                        Text(device.lifetime.counters.clicks.formatted())
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .accessibilityLabel(device.deviceName)
+                    .annotation(position: .trailing) { rowCount(device.lifetime.counters.clicks.formatted()) }
+                    .accessibilityLabel(device.deviceName.isEmpty ? "This Mac" : device.deviceName)
                     .accessibilityValue("\(device.lifetime.counters.clicks) clicks")
             }
-            .chartXAxis {
-                AxisMarks { value in
-                    AxisGridLine().foregroundStyle(.quaternary)
-                    AxisValueLabel { axisNumber(value) }
-                }
+            .rowChartStyle(peak: Double(stats.merged.devices.map(\.lifetime.counters.clicks).max() ?? 0)) { id in
+                let name = stats.merged.devices.first { $0.id == id }?.deviceName ?? ""
+                return name.isEmpty ? "This Mac" : name
             }
         }
     }
@@ -499,7 +489,15 @@ struct StatisticsView: View {
         }
     }
 
-    private var directionPeak: Double { stats.directionRows.map(\.points).max() ?? 1 }
+    private static let rowBarHeight = MarkDimension.fixed(16)
+
+    /// The figure at the end of a row's bar, which is what stands in for the axis.
+    private func rowCount(_ text: String) -> some View {
+        Text(text)
+            .font(.caption)
+            .monospacedDigit()
+            .foregroundStyle(.secondary)
+    }
 
     @ViewBuilder
     private func axisDate(_ value: AxisValue) -> some View {
@@ -508,76 +506,5 @@ struct StatisticsView: View {
                 ? date.formatted(.dateTime.month(.abbreviated))
                 : date.formatted(.dateTime.day().month(.abbreviated)))
         }
-    }
-}
-
-/// One hero number. A stat tile, deliberately not a chart: a single figure plotted is a figure
-/// with decoration around it.
-private struct StatTile: View {
-    let title: String
-    let value: String
-    let caption: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.title2)
-                .fontWeight(.medium)
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-            Text(caption)
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(10)
-        .background(.quinary, in: RoundedRectangle(cornerRadius: 8))
-        .accessibilityElement(children: .combine)
-    }
-}
-
-/// A titled box around one chart. A `Chart` has no intrinsic height, so every one of these gives
-/// it a floor; without that they collapse to nothing inside a scroll view.
-private struct ChartCard<Header: View, Plot: View>: View {
-    /// What VoiceOver calls the plot. The header may be a control rather than a label, so the
-    /// name is passed separately rather than read off it.
-    let accessibilityTitle: String
-    /// How tall the plot is drawn. The default is the floor a time-series chart needs — Swift
-    /// Charts collapses one to nothing without it. A chart that is a list of rows knows its own
-    /// height and passes it, because the floor would otherwise centre a short list in 180 points
-    /// and surround it with empty card.
-    var plotHeight: CGFloat = 180
-    @ViewBuilder let header: Header
-    @ViewBuilder let chart: Plot
-
-    var body: some View {
-        GroupBox {
-            chart
-                .frame(height: plotHeight)
-                .padding(.top, 4)
-                // Marks are invisible to VoiceOver on their own, and the run-leios skill drives
-                // this window entirely over the accessibility API.
-                .accessibilityElement(children: .contain)
-                .accessibilityLabel(accessibilityTitle)
-        } label: {
-            header
-        }
-    }
-}
-
-private struct ChartCardTitle: View {
-    let title: String
-    let subtitle: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text(title).font(.headline)
-            Text(subtitle).font(.caption).foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
