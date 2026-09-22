@@ -82,6 +82,9 @@ final class ScrollConfig {
     // User settings
     let smoothness: ScrollSettings.Smoothness
     let speed: ScrollSettings.Speed
+    /// Where between Low (0) and High (1) the acceleration curve sits. Unused at `.system` unless
+    /// a modifier brings in a curve of its own.
+    let speedLevel: Double
     let precise: Bool
     /// +1 or -1; multiply the input delta sign by this.
     let invertDirection: Int
@@ -115,6 +118,7 @@ final class ScrollConfig {
     init(settings: ScrollSettings) {
         smoothness = settings.smoothness
         speed = settings.speed
+        speedLevel = settings.scrollSpeed.level
         precise = settings.precise
         invertDirection = settings.reverseDirection ? -1 : 1
         modifierFlags = settings.modifiers
@@ -136,6 +140,7 @@ final class ScrollConfig {
     init(copying other: ScrollConfig) {
         smoothness = other.smoothness
         speed = other.speed
+        speedLevel = other.speedLevel
         precise = other.precise
         invertDirection = other.invertDirection
         modifierFlags = other.modifierFlags
@@ -230,7 +235,7 @@ final class ScrollConfig {
     static let preciseMaxSensitivityFactor = 0.5
 
     /// Sensitivity (px per tick) as a function of tick speed (ticks per second).
-    static func accelerationCurve(speed speedArg: ScrollSettings.Speed, precise: Bool, smoothness: ScrollSettings.Smoothness, animationCurve: ScrollAnimationCurveName, inputAxis: MFAxis, display: CGDirectDisplayID, scaleToDisplay: Bool, modifiers: ScrollModificationResult, useQuickModSpeed: Bool, usePreciseModSpeed: Bool, consecutiveScrollTickIntervalMax: Double, consecutiveScrollTickInterval_AccelerationEnd: Double) -> Curve {
+    static func accelerationCurve(speedLevel speed_n: Double, precise: Bool, smoothness: ScrollSettings.Smoothness, animationCurve: ScrollAnimationCurveName, inputAxis: MFAxis, display: CGDirectDisplayID, scaleToDisplay: Bool, modifiers: ScrollModificationResult, useQuickModSpeed: Bool, usePreciseModSpeed: Bool, consecutiveScrollTickIntervalMax: Double, consecutiveScrollTickInterval_AccelerationEnd: Double) -> Curve {
 
         var screenSize = -1
         if useQuickModSpeed || scaleToDisplay {
@@ -242,13 +247,11 @@ final class ScrollConfig {
             if screenSize <= 0 { screenSize = inputAxis == .horizontal ? 1920 : 1080 }
         }
 
-        let speed_n: Double
-        switch speedArg {
-        case .low: speed_n = 0.0
-        case .medium: speed_n = 0.5
-        case .high: speed_n = 1.0
-        case .system: speed_n = 0.5 // unreachable in practice (system speed uses Apple acceleration unless a mod is active)
-        }
+        // Mac Mouse Fix maps its three presets to 0, 0.5 and 1 here and interpolates the tuned
+        // values below between them. Leios's Speed slider hands over any point on that range, so
+        // Low, Medium and High land exactly where they always did and everything between them is
+        // an interpolation of the same tuning. Clamped because the curves below only span 0…1.
+        let speed_n = min(max(speed_n, 0), 1)
 
         var minSens: Double
         var maxSens: Double
@@ -343,6 +346,7 @@ final class ScrollConfigResolver {
 
         let new = ScrollConfig(copying: base)
         let u_speed = new.speed
+        let u_speedLevel = new.speedLevel
         var precise = new.precise
         let useQuickMod = modifiers.inputMod == .quick
         let usePreciseMod = modifiers.inputMod == .precise
@@ -387,7 +391,7 @@ final class ScrollConfigResolver {
         if u_speed == .system && !usePreciseMod && !useQuickMod {
             new.accelerationCurve = nil
         } else {
-            new.accelerationCurve = ScrollConfig.accelerationCurve(speed: u_speed, precise: precise, smoothness: new.smoothness, animationCurve: new.animationCurve, inputAxis: inputAxis, display: display, scaleToDisplay: scaleToDisplay, modifiers: modifiers, useQuickModSpeed: useQuickMod, usePreciseModSpeed: usePreciseMod, consecutiveScrollTickIntervalMax: new.consecutiveScrollTickIntervalMax, consecutiveScrollTickInterval_AccelerationEnd: new.consecutiveScrollTickInterval_AccelerationEnd)
+            new.accelerationCurve = ScrollConfig.accelerationCurve(speedLevel: u_speedLevel, precise: precise, smoothness: new.smoothness, animationCurve: new.animationCurve, inputAxis: inputAxis, display: display, scaleToDisplay: scaleToDisplay, modifiers: modifiers, useQuickModSpeed: useQuickMod, usePreciseModSpeed: usePreciseMod, consecutiveScrollTickIntervalMax: new.consecutiveScrollTickIntervalMax, consecutiveScrollTickInterval_AccelerationEnd: new.consecutiveScrollTickInterval_AccelerationEnd)
         }
 
         cache[key] = new

@@ -19,6 +19,10 @@ struct ScrollSettingsForm: View {
     /// not just for whichever control happens to read its binding first.
     private var effective: ScrollSettings { source.effective }
 
+    /// The toggle and the slider are two views of one setting, pinned and reverted together on
+    /// an app profile.
+    private var speed: Binding<ScrollSpeed> { source.binding(\.scrollSpeed, \.scrollSpeed) }
+
     var body: some View {
         Form {
             Section("Smooth Scrolling") {
@@ -33,13 +37,29 @@ struct ScrollSettingsForm: View {
                         label("Trackpad simulation (momentum, swipe to navigate)", \.trackpadSimulation)
                     }
                 }
-                Picker(selection: source.binding(\.speed, \.speed)) {
-                    ForEach(ScrollSettings.Speed.allCases, id: \.self) { Text($0.displayName).tag($0) }
-                } label: {
-                    label("Speed", \.speed)
+                // A profile's revert button for Speed sits next to "Speed", and moves up here only
+                // while that row is hidden, so there is always exactly one.
+                Toggle(isOn: speed.usesSystem) {
+                    if effective.speed == .system {
+                        label("Use macOS scroll speed", \.scrollSpeed)
+                    } else {
+                        Text("Use macOS scroll speed").fontWeight(source.isOverridden(\.scrollSpeed) ? .semibold : .regular)
+                    }
                 }
-                .pickerStyle(.segmented)
+                // Both shape Leios's own acceleration curve, which macOS speed replaces.
                 if effective.speed != .system {
+                    LabeledContent {
+                        Slider(value: speed.level, in: 0...1, step: 0.1) {
+                            Text("Speed")
+                        } minimumValueLabel: {
+                            Text("Low")
+                        } maximumValueLabel: {
+                            Text("High")
+                        }
+                        .labelsHidden()
+                    } label: {
+                        label("Speed", \.scrollSpeed)
+                    }
                     Toggle(isOn: source.binding(\.precise, \.precise)) {
                         label("Precise (slower for small movements)", \.precise)
                     }
@@ -74,6 +94,10 @@ struct ScrollSettingsForm: View {
             }
         }
         .formStyle(.grouped)
+        // Slides the Speed and Precise rows in and out. It has to be this modifier: a grouped Form
+        // inserts and removes rows instantly under `withAnimation` or an animated binding, which
+        // was measured by recording the window, not assumed.
+        .animation(.default, value: effective.speed == .system)
     }
 
     /// A field's label, with a revert button on an app profile once the field has been pinned.

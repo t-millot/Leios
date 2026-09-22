@@ -94,21 +94,36 @@ public struct ScrollSettings: Codable, Equatable, Sendable {
             switch self { case .off: return "Off"; case .regular: return "Regular"; case .high: return "High" }
         }
     }
+    /// What the config file stores for Speed, and all a Leios from before the Speed slider reads.
+    /// The slider's exact position travels beside it; see `ScrollSpeed`.
     public enum Speed: String, Codable, CaseIterable, Sendable {
         case system, low, medium, high
-        public var displayName: String {
-            switch self { case .system: return "macOS"; case .low: return "Low"; case .medium: return "Medium"; case .high: return "High" }
-        }
     }
 
     public var smoothness: Smoothness = .high
-    public var speed: Speed = .medium
+    /// The preset nearest the Speed slider. Writing it drops any finer position, so the two can
+    /// never disagree; the slider itself reads and writes `scrollSpeed`.
+    public var speed: Speed = .medium {
+        didSet { speedLevel = nil }
+    }
+    /// The slider's exact position when it is not on a preset; nil means exactly `speed`. See
+    /// `ScrollSpeed.stored` for why the two are kept side by side.
+    public private(set) var speedLevel: Double?
     public var precise: Bool = false
     public var reverseDirection: Bool = true
     public var trackpadSimulation: Bool = true
     public var modifiers = ScrollModifierFlags()
 
     public init() {}
+
+    public var scrollSpeed: ScrollSpeed {
+        get { ScrollSpeed(speed: speed, level: speedLevel) }
+        set {
+            let stored = newValue.stored
+            speed = stored.speed
+            speedLevel = stored.level
+        }
+    }
 
     /// True when these settings change scrolling with no modifier held, which is what decides
     /// whether the scroll tap has to run at all.
@@ -120,16 +135,68 @@ public struct ScrollSettings: Codable, Equatable, Sendable {
         smoothness != .off || speed != .system || reverseDirection
     }
 
-    enum CodingKeys: String, CodingKey { case smoothness, speed, precise, reverseDirection, trackpadSimulation, modifiers }
+    enum CodingKeys: String, CodingKey { case smoothness, speed, speedLevel, precise, reverseDirection, trackpadSimulation, modifiers }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         smoothness = try c.decodeIfPresent(Smoothness.self, forKey: .smoothness) ?? .high
         speed = try c.decodeIfPresent(Speed.self, forKey: .speed) ?? .medium
+        // A hand-edited or foreign file is clamped rather than refused: this only moves a slider.
+        speedLevel = try c.decodeIfPresent(Double.self, forKey: .speedLevel).flatMap { $0.isFinite ? min(max($0, 0), 1) : nil }
         precise = try c.decodeIfPresent(Bool.self, forKey: .precise) ?? false
         reverseDirection = try c.decodeIfPresent(Bool.self, forKey: .reverseDirection) ?? true
         trackpadSimulation = try c.decodeIfPresent(Bool.self, forKey: .trackpadSimulation) ?? true
         modifiers = try c.decodeIfPresent(ScrollModifierFlags.self, forKey: .modifiers) ?? ScrollModifierFlags()
+    }
+}
+
+/// The Speed setting as one value: macOS's own scroll speed, or a position on Leios's range from
+/// Low to High. The settings form binds to this, and an app profile pins or reverts it whole.
+public struct ScrollSpeed: Equatable, Sendable {
+    public var usesSystem: Bool
+    /// 0 is Low, 0.5 Medium and 1 High — the three tuned presets, which the engine interpolates
+    /// between. Kept while `usesSystem` is on, so turning it off returns the slider where it was.
+    public var level: Double {
+        didSet { level = Self.normalized(level) }
+    }
+
+    public static let defaultLevel = 0.5
+
+    public init(usesSystem: Bool = false, level: Double) {
+        self.usesSystem = usesSystem
+        self.level = Self.normalized(level)
+    }
+
+    /// Clamped to the range, and rounded to hundredths — finer than anyone can feel, and it keeps
+    /// a slider's `0.30000000000000004` out of the config file.
+    private static func normalized(_ level: Double) -> Double {
+        level.isFinite ? (min(max(level, 0), 1) * 100).rounded() / 100 : defaultLevel
+    }
+
+    init(speed: ScrollSettings.Speed, level: Double?) {
+        self.init(usesSystem: speed == .system, level: level ?? Self.level(of: speed) ?? Self.defaultLevel)
+    }
+
+    /// Where Low, Medium and High sit on the slider; nil for `.system`, which is not on it.
+    public static func level(of preset: ScrollSettings.Speed) -> Double? {
+        switch preset {
+        case .low: return 0
+        case .medium: return 0.5
+        case .high: return 1
+        case .system: return nil
+        }
+    }
+
+    /// How this is written to disk: the nearest preset, plus the exact level whenever it is not
+    /// already that preset. A Leios from before the slider reads `speed` alone, and rejects a whole
+    /// config file over a value it does not recognise, so `speed` only ever holds one it knows.
+    /// A slider left on a preset writes exactly what those builds wrote.
+    var stored: (speed: ScrollSettings.Speed, level: Double?) {
+        if usesSystem {
+            return (.system, level == Self.defaultLevel ? nil : level)
+        }
+        let nearest: ScrollSettings.Speed = level < 0.25 ? .low : level < 0.75 ? .medium : .high
+        return (nearest, level == Self.level(of: nearest) ? nil : level)
     }
 }
 
@@ -141,7 +208,12 @@ public struct ScrollSettings: Codable, Equatable, Sendable {
 /// fields instead of writing nulls. Hand-writing it would only restate that.
 public struct ScrollOverrides: Codable, Equatable, Sendable {
     public var smoothness: ScrollSettings.Smoothness?
-    public var speed: ScrollSettings.Speed?
+    /// Pinned together with `speedLevel`, through `scrollSpeed`: a profile pinned to Low must not
+    /// pick up the global slider's position.
+    public var speed: ScrollSettings.Speed? {
+        didSet { speedLevel = nil }
+    }
+    public private(set) var speedLevel: Double?
     public var precise: Bool?
     public var reverseDirection: Bool?
     public var trackpadSimulation: Bool?
@@ -151,6 +223,15 @@ public struct ScrollOverrides: Codable, Equatable, Sendable {
 
     public init() {}
 
+    public var scrollSpeed: ScrollSpeed? {
+        get { speed.map { ScrollSpeed(speed: $0, level: speedLevel) } }
+        set {
+            let stored = newValue?.stored
+            speed = stored?.speed
+            speedLevel = stored?.level
+        }
+    }
+
     public var isEmpty: Bool {
         smoothness == nil && speed == nil && precise == nil
             && reverseDirection == nil && trackpadSimulation == nil && modifiers == nil
@@ -159,7 +240,7 @@ public struct ScrollOverrides: Codable, Equatable, Sendable {
     public func resolved(against global: ScrollSettings) -> ScrollSettings {
         var result = global
         if let smoothness { result.smoothness = smoothness }
-        if let speed { result.speed = speed }
+        if let scrollSpeed { result.scrollSpeed = scrollSpeed }
         if let precise { result.precise = precise }
         if let reverseDirection { result.reverseDirection = reverseDirection }
         if let trackpadSimulation { result.trackpadSimulation = trackpadSimulation }

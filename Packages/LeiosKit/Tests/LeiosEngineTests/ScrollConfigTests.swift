@@ -53,6 +53,30 @@ final class ScrollConfigTests: XCTestCase {
                        accuracy: 1.0)
     }
 
+    /// The Speed slider interpolates the tuning Low, Medium and High already had: on a preset it is
+    /// that preset exactly, and between two it lands between them at every tick speed.
+    func testSpeedLevelInterpolatesBetweenThePresets() {
+        func curve(_ settings: ScrollSettings) -> Curve {
+            ScrollConfigResolver(settings: settings).resolve(modifiers: ScrollModificationResult(), inputAxis: .vertical, display: CGMainDisplayID()).accelerationCurve!
+        }
+        func curve(level: Double) -> Curve {
+            var settings = ScrollSettings()
+            settings.scrollSpeed = ScrollSpeed(level: level)
+            return curve(settings)
+        }
+        func curve(preset: ScrollSettings.Speed) -> Curve {
+            var settings = ScrollSettings()
+            settings.speed = preset
+            return curve(settings)
+        }
+        for ticksPerSecond in [1, 10, 1 / 0.015] {
+            XCTAssertEqual(curve(level: 0.5).evaluate(at: ticksPerSecond), curve(preset: .medium).evaluate(at: ticksPerSecond), accuracy: 1e-9)
+            let between = curve(level: 0.25).evaluate(at: ticksPerSecond)
+            XCTAssertGreaterThan(between, curve(preset: .low).evaluate(at: ticksPerSecond))
+            XCTAssertLessThan(between, curve(preset: .medium).evaluate(at: ticksPerSecond))
+        }
+    }
+
     func testSystemSpeedUsesAppleAcceleration() {
         let r = resolver(smoothness: .high, speed: .system)
         let cfg = r.resolve(modifiers: ScrollModificationResult(), inputAxis: .vertical, display: CGMainDisplayID())
