@@ -15,7 +15,6 @@ public final class Engine {
         public var dragTapEnabled = false
         public var flagsTapEnabled = false
         public var statsTapEnabled = false
-        public var pointerFrozen = false
         public init() {}
     }
 

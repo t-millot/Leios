@@ -64,6 +64,13 @@ final class TouchAnimator {
     private var lastMomentumHint: MomentumHint = .none
     private(set) var lastAnimationSpeed: Vector = .zero
     private var lastFrameTime: CFTimeInterval = -1
+    /// `CACurrentMediaTime()` of the last sign of life from the clock: the cold start, then every
+    /// frame. Distinct from `lastFrameTime`, which is the *target* time of the frame being drawn
+    /// and is left behind by the previous animation until the first frame of the next one.
+    private var lastClockActivity: CFTimeInterval = 0
+    /// Longer than any frame period a display link delivers while it runs, including a 24 Hz
+    /// display and a run loop that was briefly busy.
+    private static let clockStallTimeout: CFTimeInterval = 0.25
 
     private let subPixelator = VectorSubPixelator.biased()
 
@@ -74,7 +81,6 @@ final class TouchAnimator {
     // MARK: Interface
 
     var animationValueLeft: Vector { subtracted(animationValueTotal, lastAnimationValue) }
-    var animationTimeLeft: Double { animationEndTime - lastFrameTime }
 
     func resetSubPixelator() {
         subPixelator.reset()
@@ -93,6 +99,15 @@ final class TouchAnimator {
     // MARK: Start
 
     func start(params: StartParamsCalculation, callback: @escaping Callback) {
+        // A running animation whose clock stopped ticking — its display was unplugged, or the pool
+        // tore the clock down under it after a screen-parameter change — would otherwise stay
+        // "running" for good: every later start takes the running path, which never subscribes to
+        // a clock, and smooth scrolling is dead until something happens to reset it. End it the
+        // way a reset would, so the client closes its gesture, and let this start be a cold one.
+        if isRunning, CACurrentMediaTime() - lastClockActivity > Self.clockStallTimeout {
+            Log.engine.warning("TouchAnimator: frame clock stalled mid-animation; restarting on a live one")
+            cancel()
+        }
         let p = params(animationValueLeft, isRunning, animationCurve, lastAnimationSpeed)
         // Reset only once the params actually asked for a start. Mac Mouse Fix zeroes this first, so a
         // declined start on a running animation makes the *next* frame re-emit everything the animation
@@ -157,6 +172,7 @@ final class TouchAnimator {
             self.clock = nil
             return
         }
+        lastClockActivity = CACurrentMediaTime()
         isRunning = true
     }
 
@@ -186,6 +202,7 @@ final class TouchAnimator {
 
     private func frameCallback(_ timing: FrameTiming) {
         guard isRunning else { return }
+        lastClockActivity = timing.now
         guard let callback = clientCallback, let animationCurve else {
             assertionFailure("Invalid state - callback/curve can't be nil during running animation")
             return

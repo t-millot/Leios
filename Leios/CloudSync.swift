@@ -126,9 +126,7 @@ final class CloudSync {
         return identifiers.contains(containerID)
     }
 
-    static var deviceName: String {
-        Host.current().localizedName ?? ProcessInfo.processInfo.hostName
-    }
+    static var deviceName: String { DeviceName.current }
 
     func cancelPendingUpload() {
         uploadTask?.cancel()

@@ -38,8 +38,12 @@ final class CADisplayLinkClock: NSObject, FrameClock {
     /// pool rebuilds or stops, so this one dictionary is the engine's only shared mutable state here.
     /// Callbacks are always invoked outside the lock, since a callback may subscribe or unsubscribe.
     private let lock = NSLock()
-    private var subscribers: [ObjectIdentifier: (FrameTiming) -> Void] = [:]
-    private var lastTimestamp: CFTimeInterval = 0
+    private var subscribers: [ObjectIdentifier: (FrameTiming) -> Void] = [:] {
+        didSet { callbacks = Array(subscribers.values) }
+    }
+    /// `subscribers.values`, kept as an array so a frame copies a reference under the lock instead
+    /// of allocating a fresh array at the display's refresh rate for as long as anything animates.
+    private var callbacks: [(FrameTiming) -> Void] = []
 
     /// Must be called on the main thread.
     init(screen: NSScreen, displayID: CGDirectDisplayID, runLoop: RunLoop) {
@@ -68,7 +72,6 @@ final class CADisplayLinkClock: NSObject, FrameClock {
         let wasEmpty = subscribers.isEmpty
         subscribers[token] = callback
         if wasEmpty {
-            lastTimestamp = 0
             link?.isPaused = false
         }
         return true
@@ -94,11 +97,12 @@ final class CADisplayLinkClock: NSObject, FrameClock {
 
     @objc private func tick(_ link: CADisplayLink) {
         lock.lock()
-        let callbacks = Array(subscribers.values)
+        let callbacks = self.callbacks
         lock.unlock()
         guard !callbacks.isEmpty else { return }
         let now = CACurrentMediaTime()
-        let nominal = nominalTimeBetweenFrames
+        // The link being ticked, not `self.link`, which the main thread may be clearing right now.
+        let nominal = link.duration > 0 ? link.duration : 1.0 / 60.0
         let last = link.timestamp
         let target = link.targetTimestamp
         var between = target - last

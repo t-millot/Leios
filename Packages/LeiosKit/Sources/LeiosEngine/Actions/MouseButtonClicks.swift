@@ -30,12 +30,4 @@ enum MouseButtonClicks {
             clickLevel += 1
         }
     }
-
-    static func post(button: Int, down: Bool) {
-        let loc = EventUtility.pointerLocation()
-        let (type, cgButton) = eventTypes(button: button, down: down)
-        guard let event = CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: loc, mouseButton: cgButton) else { return }
-        event.setIntegerValueField(.mouseEventClickState, value: 1)
-        event.post(tap: .cgSessionEventTap)
-    }
 }

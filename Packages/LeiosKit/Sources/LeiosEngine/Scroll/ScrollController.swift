@@ -26,7 +26,6 @@ final class ScrollController {
     private let analyzer = ScrollAnalyzer()
 
     private var tap: EventTap?
-    var isReceiving: Bool { tap?.isEnabled ?? false }
 
     // Dynamic state
     private var currentModifications = ScrollModificationResult()

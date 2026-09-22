@@ -193,7 +193,7 @@ final class StatsFlusher {
         }
         if loaded.deviceID.isEmpty { loaded.deviceID = UUID().uuidString }
         // Refreshed every launch: a Mac can be renamed, and the name is only ever a label.
-        loaded.deviceName = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
+        loaded.deviceName = DeviceName.current
         archive = loaded
         return loaded
     }

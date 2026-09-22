@@ -75,11 +75,6 @@ final class EngineThread {
         CFRunLoopWakeUp(rl)
     }
 
-    /// Runs `block` immediately when already on the engine thread, otherwise enqueues it.
-    func performInline(_ block: @escaping () -> Void) {
-        if isCurrent { block() } else { perform(block) }
-    }
-
     /// Runs `block` on the engine thread and waits for it. Must not be called from the engine thread.
     func performSync<T>(_ block: @escaping () -> T) -> T {
         if isCurrent { return block() }

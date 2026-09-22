@@ -36,8 +36,6 @@ final class ButtonInputReceiver {
         }
     }
 
-    var isReceiving: Bool { tap?.isEnabled ?? false }
-
     /// True while a capture is armed or a captured button's release is still pending, which keeps
     /// the tap alive even when no button is mapped.
     var isCapturing: Bool { captureCompletion != nil || swallowReleaseOf != nil }

@@ -23,7 +23,9 @@ final class PointerFreeze {
     private var origin: CGPoint = .zero
     private var keepPointerMoving = false
     private var puppetPosition: CGPoint = .zero
-    private var display: CGDirectDisplayID = CGMainDisplayID()
+    /// Bounds of the display the puppet cursor is confined to, taken once per freeze rather than
+    /// asked of CoreGraphics on every one of the up-to-8000 mouse reports a second it moves on.
+    private var displayBounds: CGRect = .zero
     private var lastEventTimestamp: CFTimeInterval = 0
     private var lastEventDelta: Int64 = 0
     private var previousInterval: SuppressionInterval = .default
@@ -83,7 +85,7 @@ final class PointerFreeze {
         tap?.enable(true)
         if keepPointerMoving {
             puppetPosition = origin
-            display = EventUtility.display(at: origin) ?? CGMainDisplayID()
+            displayBounds = CGDisplayBounds(EventUtility.display(at: origin) ?? CGMainDisplayID())
             makeCursorSettable()
             let pos = puppetPosition
             puppetDraws.reset()
@@ -119,9 +121,8 @@ final class PointerFreeze {
             var pos = puppetPosition
             pos.x += Double(dx)
             pos.y += Double(dy)
-            let bounds = CGDisplayBounds(display)
-            pos.x = clip(pos.x, bounds.minX, bounds.maxX - 1)
-            pos.y = clip(pos.y, bounds.minY, bounds.maxY - 1)
+            pos.x = clip(pos.x, displayBounds.minX, displayBounds.maxX - 1)
+            pos.y = clip(pos.y, displayBounds.minY, displayBounds.maxY - 1)
             puppetPosition = pos
             // A high-report-rate mouse sends up to 8000 of these a second, far more often than the
             // display can show them. Coalesce: one redraw in flight at a time, always rendering the

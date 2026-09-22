@@ -29,7 +29,6 @@ final class StatsTap {
     private unowned let recorder: StatsRecorder
 
     private var tap: EventTap?
-    var isReceiving: Bool { tap?.isEnabled ?? false }
 
     private static let mask: CGEventMask =
         .init(1 << CGEventType.scrollWheel.rawValue)

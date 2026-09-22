@@ -23,17 +23,28 @@ enum ButtonCaptureOutcome: Equatable {
 final class HelperClient {
 
     private var connection: NSXPCConnection?
+    /// Bumped for every connection made, so a handler can tell whether it still belongs to the
+    /// current one.
+    private var generation = 0
 
     private func makeConnection() -> NSXPCConnection {
         if let c = connection { return c }
         let c = NSXPCConnection(machServiceName: LeiosConstants.machServiceName, options: [])
         c.remoteObjectInterface = XPC.interface()
-        c.invalidationHandler = { [weak self] in
-            Task { @MainActor in self?.connection = nil }
+        // Only forget the connection these handlers belong to. They arrive asynchronously, so after
+        // `invalidate()` and a fresh `makeConnection()` — which is what re-registering the helper
+        // does — the old one's handler would otherwise drop the new connection without invalidating
+        // it, leaving it open and orphaned while the next call opened yet another.
+        generation += 1
+        let mine = generation
+        let forget: () -> Void = { [weak self] in
+            Task { @MainActor in
+                guard let self, self.generation == mine else { return }
+                self.connection = nil
+            }
         }
-        c.interruptionHandler = { [weak self] in
-            Task { @MainActor in self?.connection = nil }
-        }
+        c.invalidationHandler = forget
+        c.interruptionHandler = forget
         c.resume()
         connection = c
         return c

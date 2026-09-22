@@ -28,15 +28,6 @@ struct CircularBuffer<T> {
         if filled < capacity { filled += 1 }
     }
 
-    /// Oldest → newest.
-    func content() -> [T] {
-        if filled == 0 { return [] }
-        var result: [T] = []
-        result.reserveCapacity(filled)
-        forEach { result.append($0) }
-        return result
-    }
-
     /// Oldest → newest, without building an array. `body` is non-escaping, so walking the buffer
     /// this way allocates nothing — which matters because the scroll analyzer walks it once per tick.
     func forEach(_ body: (T) -> Void) {
@@ -59,7 +50,6 @@ final class RollingAverage: Smoother {
 
     private var circularBuffer: CircularBuffer<Double>
     private let initialValues: [Double]
-    var filled: Int { circularBuffer.filled }
 
     convenience init(capacity: Int) {
         self.init(capacity: capacity, initialValues: [])

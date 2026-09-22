@@ -28,6 +28,33 @@ final class WindowAtPointTests: XCTestCase {
         XCTAssertTrue(LeiosWindowAtPointIsAvailable(), "SkyLight window hit test unavailable — the fallback still works, but the fast path is gone")
     }
 
+    /// Windows have rounded corners, and the two answers legitimately differ inside them: SkyLight
+    /// hit-tests the window's real shape and sees through a transparent corner to whatever is
+    /// behind, while the window list only knows the bounding rectangle. Generous, because the
+    /// radius has grown with every recent macOS.
+    private static let cornerAllowance = 32.0
+
+    /// Bounds of the window the list walk picks at `point`, by the same rule it picks it.
+    private func windowListBounds(at point: CGPoint) -> CGRect? {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return nil }
+        let ownPid = ProcessInfo.processInfo.processIdentifier
+        for info in list {
+            guard let layer = info[kCGWindowLayer as String] as? Int, layer == 0,
+                  let pid = info[kCGWindowOwnerPID as String] as? pid_t, pid != ownPid,
+                  let boundsDict = info[kCGWindowBounds as String] as? NSDictionary,
+                  let bounds = CGRect(dictionaryRepresentation: boundsDict) else { continue }
+            if bounds.contains(point) { return bounds }
+        }
+        return nil
+    }
+
+    private func isInRoundedCorner(_ point: CGPoint, of bounds: CGRect) -> Bool {
+        let a = Self.cornerAllowance
+        let nearVerticalEdge = point.x - bounds.minX < a || bounds.maxX - point.x < a
+        let nearHorizontalEdge = point.y - bounds.minY < a || bounds.maxY - point.y < a
+        return nearVerticalEdge && nearHorizontalEdge
+    }
+
     /// The point that matters: SkyLight and the window list use the same coordinate space, so no
     /// flip is needed. A flipped y would show up here as mass disagreement.
     func testAgreesWithWindowListEverywhere() throws {
@@ -40,6 +67,7 @@ final class WindowAtPointTests: XCTestCase {
             let viaSkyLight = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier
             let viaList = EventUtility.bundleIDOfAppViaWindowList(at: point)
             if viaSkyLight != viaList {
+                if let bounds = windowListBounds(at: point), isInRoundedCorner(point, of: bounds) { continue }
                 disagreements.append("(\(Int(point.x)),\(Int(point.y))) skylight=\(viaSkyLight ?? "nil") list=\(viaList ?? "nil")")
             }
         }

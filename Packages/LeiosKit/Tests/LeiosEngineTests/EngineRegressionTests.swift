@@ -133,4 +133,45 @@ final class EngineRegressionTests: XCTestCase {
         wait(for: [done], timeout: 2)
         XCTAssertFalse(isRunning, "an animator with no live clock must not report itself running")
     }
+
+    /// A clock that dies *during* an animation — a display unplugged, or the pool rebuilding after
+    /// a screen-parameter change — used to strand the animator: still marked running, so every
+    /// later start took the running path, which never subscribes to a clock, and smooth scrolling
+    /// stayed dead until something else happened to reset it.
+    func testAnimatorRecoversWhenItsClockDiesMidAnimation() throws {
+        guard !NSScreen.screens.isEmpty else { throw XCTSkip("no screens") }
+        let thread = EngineThread()
+        thread.start()
+        defer { thread.stop() }
+
+        let pool = FrameClockPool(engineRunLoop: thread.foundationRunLoop)
+        pool.start()
+        defer { pool.stop() }
+
+        let params: TouchAnimator.StartParamsCalculation = { _, _, _, _ in
+            AnimatorStartParams(doStart: true, duration: 1.0, vector: Vector(x: 0, y: 600), curve: ScrollConfig.linearCurve)
+        }
+        let animator = thread.performSync { () -> TouchAnimator in
+            let animator = TouchAnimator(clockPool: pool)
+            animator.linkToMainScreen()
+            animator.start(params: params, callback: { _, _, _ in })
+            return animator
+        }
+        XCTAssertTrue(thread.performSync { animator.isRunning })
+
+        // Every clock torn down under the running animation, then live ones put back.
+        pool.stop()
+        pool.start()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+
+        let framed = expectation(description: "frames after the next start")
+        framed.assertForOverFulfill = false
+        thread.perform {
+            animator.start(params: params, callback: { _, phase, _ in
+                if phase != .canceled { framed.fulfill() }
+            })
+        }
+        wait(for: [framed], timeout: 2)
+        thread.performSync { animator.cancel() }
+    }
 }

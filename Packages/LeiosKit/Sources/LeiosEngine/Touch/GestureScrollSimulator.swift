@@ -32,8 +32,6 @@ final class GestureScrollSimulator {
         momentumAnimator = TouchAnimator(clockPool: clockPool)
     }
 
-    var isMomentumScrolling: Bool { momentumAnimator.isRunning }
-
     // MARK: Main interface
 
     /// Post scroll events that behave as if they are coming from a trackpad. With `autoMomentumScroll`, momentum

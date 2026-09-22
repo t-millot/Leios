@@ -45,18 +45,12 @@ enum EventUtility {
         Int64((scrollDelta * 65536).rounded())
     }
 
-    /// Scroll events posted by the Wacom userspace driver must be left alone.
+    /// Whether `pid` is the Wacom userspace driver, whose scroll events must be left alone.
     ///
     /// Costs a `proc_pidpath` syscall and a 4 KB buffer, which is too much to spend on every tick —
     /// engine code goes through `AppUnderPointerCache.isWacomEvent(_:)`, which memoizes this per pid
     /// and drops the memo when an app exits. Mac Mouse Fix removed its own cache only because it had
     /// nothing watching for pid reuse.
-    static func isWacomEvent(_ event: CGEvent) -> Bool {
-        let senderPid = event.getIntegerValueField(.eventSourceUnixProcessID)
-        if senderPid == 0 { return false }
-        return isWacomProcess(pid: pid_t(senderPid))
-    }
-
     static func isWacomProcess(pid: pid_t) -> Bool {
         guard let path = executablePath(forPid: pid) else { return false }
         return (path as NSString).lastPathComponent.lowercased().contains("wacom")

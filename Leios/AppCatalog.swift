@@ -9,11 +9,13 @@ import UniformTypeIdentifiers
 enum AppCatalog {
 
     private static var urls: [String: URL?] = [:]
+    private static var names: [String: String?] = [:]
     private static var icons: [String: NSImage] = [:]
 
     /// Drops the memo so newly installed apps are picked up. Called when the Apps tab appears.
     static func refresh() {
         urls.removeAll()
+        names.removeAll()
         icons.removeAll()
     }
 
@@ -27,9 +29,15 @@ enum AppCatalog {
     static func isInstalled(_ bundleID: String) -> Bool { url(forBundleID: bundleID) != nil }
 
     /// The app's own name, or nil when it can't be found on disk any more.
+    ///
+    /// Memoised like the rest: the localised name is a LaunchServices round trip of about 120 µs,
+    /// and sorting the sidebar asks for two names per comparison on every pass — which, since the
+    /// sidebar reads the config, is every frame of a slider being dragged anywhere in the window.
     static func displayName(forBundleID bundleID: String) -> String? {
-        guard let url = url(forBundleID: bundleID) else { return nil }
-        return FileManager.default.displayName(atPath: url.path)
+        if let cached = names[bundleID] { return cached }
+        let name = url(forBundleID: bundleID).map { FileManager.default.displayName(atPath: $0.path) }
+        names[bundleID] = name
+        return name
     }
 
     /// The app's icon. An app that isn't on this Mac is drawn by `AppIcon` rather than here — the
