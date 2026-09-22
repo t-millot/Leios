@@ -75,8 +75,17 @@ open build/Build/Products/Debug/Leios.app/Contents/Library/LoginItems/LeiosHelpe
 ```
 
 It gets Accessibility from the existing grant as long as it is signed with the same Developer ID
-and bundle identifier (`CODE_SIGN_IDENTITY="Developer ID Application: …"`, plus
-`LEIOS_ENTITLEMENTS=SupportFiles/Leios-CI.entitlements` so the build needs no iCloud profile). What
+and bundle identifier. The targets use automatic signing, which refuses a Developer ID identity on
+its own, so the signing style has to be overridden too:
+
+```bash
+xcodebuild -project Leios.xcodeproj -scheme Leios -configuration Debug -derivedDataPath build build \
+    CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="Developer ID Application: Thomas Millot (WE9Q98XU4V)" \
+    PROVISIONING_PROFILE_SPECIFIER= LEIOS_ENTITLEMENTS=SupportFiles/Leios-CI.entitlements
+```
+
+The installed helper can keep running: taps are inserted at the head, so the helper started last
+sees every event first and the older one only gets what it passes through. What
 it does *not* get is XPC: `NSXPCListener(machServiceName:)` needs launchd to own the name, so the
 settings app will show `Helper is enabled but not responding yet…` and anything that goes over XPC
 — status, `reloadConfig`, `flushStatistics` — will not work. Verify through `config.json`,
@@ -253,6 +262,15 @@ what the helper posts, so it is the one place a simulated gesture can be diffed
 field-by-field against a real trackpad one. That diff is how the dock-swipe
 flavor bug was found — the engine's events looked correct in the log and in the
 code, and only a capture showed the one field that differed.
+
+To measure smooth scrolling frame by frame, post wheel ticks
+(`CGEvent(scrollWheelEvent2Source:…)`) to `kCGHIDEventTap` and run an *active* tap at
+`kCGSessionEventTap` that records every scroll event whose `eventSourceUnixProcessID` is the
+helper's and returns nil, so nothing on screen scrolls. The helper stamps each output event with
+`CACurrentMediaTime()`, so the gaps between `event.timestamp`s are its true posting cadence; receive
+times measured in the tap pick up jitter of their own and are not. The engine picks its frame clock
+from the *posted event's* `location`, so setting it steers a test onto a given display without
+moving the pointer. Synthetic ticks are counted by the statistics tap like real ones.
 
 ## Verifying a gesture visually
 
